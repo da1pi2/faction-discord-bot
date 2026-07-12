@@ -42,7 +42,7 @@ module.exports = {
     if (!roleName) {
       await interaction.reply({
         content:
-          '❌ Categoria non valida. Usa: `peak`, `day`, `night` oppure una regione (`europe`, `americas`, `asia`, `africa`, `middleeast`, `india`, `oceania`).',
+          '❌ Invalid category. Use: `peak`, `day`, `night` or a region (`europe`, `americas`, `asia`, `africa`, `middleeast`, `india`, `oceania`).',
         ephemeral: true,
       });
       return;
@@ -51,13 +51,13 @@ module.exports = {
     const role = guild.roles.cache.find((r) => r.name === roleName);
     if (!role) {
       await interaction.reply({
-        content: `⚠️ Il ruolo "${roleName}" non esiste ancora su questo server (esegui /status almeno una volta).`,
+        content: `⚠️ The role "${roleName}" does not exist on this server (run /status at least once).`,
         ephemeral: true,
       });
       return;
     }
 
-    const content = `${role} ${extraMessage ? extraMessage : 'Chiamata a raccolta!'}`;
+    const content = `${role} ${extraMessage ? extraMessage : 'Rally call!'}`;
     await interaction.reply({
       content,
       allowedMentions: { roles: [role.id] },

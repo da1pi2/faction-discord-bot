@@ -28,7 +28,7 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setTitle('📊 Best Event Time Analysis')
       .setColor(0x9b59b6)
-      .setDescription('Calcolo teorico basato sulla distribuzione regionale attuale.');
+      .setDescription('Theoretical estimate based on current regional distribution.');
 
     for (const entry of top3) {
       embed.addFields({
@@ -44,13 +44,13 @@ module.exports = {
     if (totalSamples >= MIN_SAMPLES_FOR_HISTORY && history.length > 0) {
       const best = history[0];
       embed.addFields({
-        name: '📈 Dato storico (basato su attivita reale)',
-        value: `Miglior orario osservato: **${best.hour_bucket}:00 UTC**\nMedia membri attivi: **${Math.round(best.avg_active)}**\n(${totalSamples} rilevazioni salvate)`,
+        name: '[BETA] 📈 Historical Data (based on real activity)',
+        value: `Best observed time: **${best.hour_bucket}:00 UTC**\nAverage active members: **${Math.round(best.avg_active)}**\n(${totalSamples} recordings saved)`,
       });
     } else {
       embed.addFields({
-        name: '📈 Dato storico',
-        value: `Ancora pochi dati raccolti (${totalSamples}/${MIN_SAMPLES_FOR_HISTORY}). Il bot registra automaticamente ogni 15 minuti: torna a controllare tra qualche giorno per un'analisi basata sull'attivita reale.`,
+        name: '[BETA] 📈 Historical Data',
+        value: `Still collecting data (${totalSamples}/${MIN_SAMPLES_FOR_HISTORY}). The bot records automatically every 15 minutes: come back in a few days for an analysis based on real activity.`,
       });
     }
 

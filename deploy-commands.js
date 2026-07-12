@@ -19,6 +19,8 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
     // Registrazione su una singola guild: istantanea, ideale in fase di sviluppo.
     // Per registrare i comandi globalmente su tutti i server (richiede fino a 1h
     // di propagazione) usa Routes.applicationCommands(CLIENT_ID) invece.
+    console.log(JSON.stringify(commands.find(c => c.name === 'profile'), null, 2));
+    
     await rest.put(
       Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
       { body: commands }

@@ -74,7 +74,7 @@ client.on('interactionCreate', async (interaction) => {
     await command.execute(interaction);
   } catch (err) {
     console.error(`Errore eseguendo /${interaction.commandName}:`, err);
-    const errorReply = { content: '❌ Si e verificato un errore eseguendo il comando.', ephemeral: true };
+    const errorReply = { content: '❌ An error occurred running this command.', ephemeral: true };
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(errorReply).catch(() => {});
     } else {

@@ -30,16 +30,20 @@ module.exports = {
     .addStringOption((opt) => opt.setName('name').setDescription('Nome evento').setRequired(true))
     .addStringOption((opt) =>
       opt.setName('time').setDescription('Ora UTC nel formato HH:MM (es. 18:00)').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('description').setDescription('Descrizione evento (opzionale)').setRequired(false)
     ),
 
   async execute(interaction) {
     const name = interaction.options.getString('name');
     const timeStr = interaction.options.getString('time');
+    const description = interaction.options.getString('description'); // può essere null
     const targetDate = parseTimeToday(timeStr);
 
     if (!targetDate) {
       await interaction.reply({
-        content: '❌ Formato ora non valido. Usa HH:MM in UTC, es. `18:00`.',
+        content: '❌ Invalid time format. Use UTC HH:MM, e.g. 18:00.',
         ephemeral: true,
       });
       return;
@@ -50,25 +54,26 @@ module.exports = {
     const msUntilReminder = msUntilEvent - 30 * 60 * 1000;
 
     const embed = new EmbedBuilder()
-      .setTitle('📅 Evento programmato')
+      .setTitle('📅 Event Scheduled')
       .setColor(0xe67e22)
       .addFields(
-        { name: 'Nome', value: name, inline: true },
-        { name: 'Orario', value: `${timeStr} UTC`, inline: true }
+        { name: 'Name', value: name, inline: true },
+        { name: 'Time', value: `${timeStr} UTC`, inline: true }
       );
+    if (description) embed.addFields({ name: 'Description', value: description });
     await interaction.reply({ embeds: [embed] });
 
     // Promemoria 30 minuti prima (solo se c'e ancora tempo)
     if (msUntilReminder > 0) {
       const reminderTimer = setTimeout(() => {
-        channel.send(`🐉 **${name}**\nStarts in 30 minutes.`).catch(() => {});
+        channel.send(`🐉 **${name}**${description ? `\n${description}` : ''}\nStarts in 30 minutes.`)
       }, msUntilReminder);
       scheduledEvents.push(reminderTimer);
     }
 
     // Notifica all'orario dell'evento
     const startTimer = setTimeout(() => {
-      channel.send(`🐉 **${name} started!**`).catch(() => {});
+      channel.send(`🐉 **${name} started!**${description ? `\n${description}` : ''}`)
     }, Math.max(msUntilEvent, 0));
     scheduledEvents.push(startTimer);
   },

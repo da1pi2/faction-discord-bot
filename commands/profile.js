@@ -7,20 +7,23 @@ const { statusFromLocalHour } = require('../config/regions');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('profile')
-    .setDescription('Mostra la tua regione e il tuo stato attivita attuale'),
+    .setDescription('Mostra la tua regione e stato attuale, o quella di un altro membro')
+    .addUserOption((opt) =>
+      opt.setName('user').setDescription('Utente di cui vedere il profilo (opzionale)').setRequired(false)
+    ),
 
   async execute(interaction) {
-    const member = interaction.member;
+    const targetUser = interaction.options.getUser('user') ?? interaction.user;
+    const member = await interaction.guild.members.fetch(targetUser.id); // sostituisce interaction.member
     const regionKey = getMemberRegionKey(member);
 
     if (!regionKey) {
-      await interaction.reply({
-        content:
-          '⚠️ Non hai ancora selezionato una regione. Usa le reaction role di Carl-bot per sceglierne una.',
-        ephemeral: true,
-      });
-      return;
-    }
+    await interaction.reply({
+      content: `⚠️ ${targetUser.id === interaction.user.id ? 'You have' : `${targetUser.username} has`} not selected a region yet.`,
+      ephemeral: true,
+    });
+    return;
+  }
 
     const region = REGIONS[regionKey];
     const utcHour = currentUtcHour();
@@ -29,7 +32,7 @@ module.exports = {
     const status = STATUS_ROLES[statusKey];
 
     const embed = new EmbedBuilder()
-      .setTitle('👤 Il tuo profilo')
+      .setTitle(targetUser.id === interaction.user.id ? '👤 Your Profile' : `👤 ${targetUser.username}'s Profile`)
       .setColor(0xf1c40f)
       .addFields(
         { name: 'La tua regione', value: `${region.emoji} ${region.label}`, inline: true },

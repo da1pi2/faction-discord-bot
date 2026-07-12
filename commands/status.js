@@ -42,7 +42,7 @@ module.exports = {
     embed.addFields({ name: 'Regions', value: regionLines || 'Nessun dato' });
 
     if (summary.unassigned > 0) {
-      embed.addFields({ name: '⚠️ Senza regione', value: `${summary.unassigned} membri` });
+      embed.addFields({ name: '⚠️ Missing region', value: `${summary.unassigned} members` });
     }
 
     embed.setFooter({ text: `Last update: ${formatHour(summary.utcHour)} UTC` });
