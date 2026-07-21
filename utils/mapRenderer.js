@@ -5,7 +5,7 @@ const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
 const MARKER_PATH = path.join(__dirname, '..', 'images', 'location.png');
 const MAX_X = 2078;
 const MAX_Y = 3308;
-const MARKER_WIDTH = 20;
+const MARKER_WIDTH = 40;
 
 function clampCoordinate(value, maxValue) {
   return Math.max(0, Math.min(value, maxValue));
@@ -21,11 +21,6 @@ function parseCoordinatePair(input) {
     x: Number.parseInt(match[1], 10),
     y: Number.parseInt(match[2], 10),
   };
-}
-
-function toPixel(value, maxValue, size) {
-  if (size <= 1) return 0;
-  return Math.round((value / maxValue) * (size - 1));
 }
 
 async function renderMapWithMarkers(markers) {
@@ -46,8 +41,8 @@ async function renderMapWithMarkers(markers) {
   const composite = markers.map((marker) => {
     const x = clampCoordinate(marker.x, MAX_X);
     const y = clampCoordinate(marker.y, MAX_Y);
-    const pixelX = toPixel(x, MAX_X, mapMeta.width);
-    const pixelY = toPixel(y, MAX_Y, mapMeta.height);
+    const pixelX = clampCoordinate(x, mapMeta.width - 1);
+    const pixelY = clampCoordinate(y, mapMeta.height - 1);
     const left = Math.max(0, Math.min(Math.round(pixelX - markerMeta.width / 2), mapMeta.width - markerMeta.width));
     const top = Math.max(0, Math.min(Math.round(pixelY - markerMeta.height), mapMeta.height - markerMeta.height));
 
