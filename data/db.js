@@ -39,7 +39,7 @@ function logSnapshot(summary) {
     summary.byStatus.night,
     JSON.stringify(summary.byRegion)
   );
-  dbEvents.emit('update'); // <-- Segnala aggiornamento
+  dbEvents.emit('update', 'Snapshot automatico attività (sync 15 min)');
 }
 
 // Media di membri attivi (day+peak, escludendo night) raggruppata per ora UTC intera,
@@ -68,40 +68,50 @@ function upsertObjective(name, x, y) {
        y = excluded.y,
        updated_at = excluded.updated_at`
   ).run(name, x, y, now, now);
-  dbEvents.emit('update'); // <-- Segnala aggiornamento
+  dbEvents.emit('update', `Obiettivo inserito/aggiornato: ${name}`);
 }
 
 function addObjective(name, x, y) {
   const now = new Date().toISOString();
-  return db.prepare(
+  const result = db.prepare(
     `INSERT INTO map_objectives (name, x, y, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?)`
   ).run(name, x, y, now, now);
-  dbEvents.emit('update'); // <-- Segnala aggiornamento
+  
+  dbEvents.emit('update', `Aggiunto nuovo obiettivo: ${name}`);
+  return result;
 }
 
 function updateObjective(name, x, y) {
   const now = new Date().toISOString();
-  return db.prepare(
+  const result = db.prepare(
     `UPDATE map_objectives
      SET x = ?, y = ?, updated_at = ?
      WHERE name = ?`
   ).run(x, y, now, name);
-  if (result.changes > 0) dbEvents.emit('update');
+  
+  if (result.changes > 0) dbEvents.emit('update', `Aggiornato obiettivo: ${name}`);
+  return result;
 }
 
 function deleteObjective(name) {
-  return db.prepare('DELETE FROM map_objectives WHERE name = ?').run(name);
-  if (result.changes > 0) dbEvents.emit('update');
+  const result = db.prepare('DELETE FROM map_objectives WHERE name = ?').run(name);
+  if (result.changes > 0) dbEvents.emit('update', `Eliminato obiettivo: ${name}`);
+  return result;
 }
 
 function clearObjectives() {
-  return db.prepare('DELETE FROM map_objectives').run();
-  if (result.changes > 0) dbEvents.emit('update');
+  const result = db.prepare('DELETE FROM map_objectives').run();
+  if (result.changes > 0) dbEvents.emit('update', 'Tutti gli obiettivi sono stati eliminati');
+  return result;
 }
 
 function listObjectives() {
   return db.prepare('SELECT name, x, y, created_at, updated_at FROM map_objectives ORDER BY name COLLATE NOCASE').all();
+}
+
+function createBackup(destinationPath) {
+  return db.backup(destinationPath);
 }
 
 module.exports = {
@@ -115,4 +125,5 @@ module.exports = {
   deleteObjective,
   clearObjectives,
   listObjectives,
+  createBackup,
 };

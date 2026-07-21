@@ -2,7 +2,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
-const { Client, GatewayIntentBits, Collection } = require('discord.js');
+const { AttachmentBuilder, Client, GatewayIntentBits, Collection } = require('discord.js');
 const { syncGuildActivityRoles } = require('./utils/roleManager');
 const { logSnapshot, dbEvents, createBackup } = require('./data/db');
 
@@ -26,7 +26,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // --- FUNZIONE DI BACKUP DISCORD ---
 let isBackingUp = false;
-async function performDiscordBackup() {
+async function performDiscordBackup(reason = 'Aggiornamento database') {
   if (isBackingUp) return;
   isBackingUp = true;
   
@@ -59,7 +59,7 @@ async function performDiscordBackup() {
     const attachment = new AttachmentBuilder(backupPath, { name: `dragonfire-db-${dateStr}.sqlite` });
     
     await channel.send({ 
-      content: `📦 **Backup automatico del database** - Aggiornato al: ${new Date().toUTCString()}`, 
+      content: `📦 **Backup automatico del database**\n🛠️ Ultima operazione: *${reason}*\n🕒 Aggiornato al: ${new Date().toUTCString()}`, 
       files: [attachment] 
     });
 
@@ -80,12 +80,17 @@ client.once('clientReady', async () => {
 
   // --- LISTENER PER IL BACKUP CON DEBOUNCE ---
   let backupTimeout = null;
-  dbEvents.on('update', () => {
+  let latestReason = 'Aggiornamento avvio bot';
+  
+  dbEvents.on('update', (reason) => {
+    if (reason) {
+      latestReason = reason;
+    }
     // Se ci sono stati aggiornamenti recenti, azzera il timer (evita spam)
     if (backupTimeout) clearTimeout(backupTimeout);
     // Attende 5 secondi di inattività sul DB prima di caricare il file su Discord
     backupTimeout = setTimeout(() => {
-      performDiscordBackup();
+      performDiscordBackup(latestReason);
     }, 5000); 
   });
   // -------------------------------------------
