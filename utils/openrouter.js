@@ -78,7 +78,10 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
     'Non inventare dettagli mancanti.',
     'Metti in evidenza: temi principali, decisioni prese, domande aperte, azioni da fare e informazioni importanti.',
     'Se il contenuto e scarso o rumoroso, dillo chiaramente.',
-    'Rispondi solo con il riassunto finale, senza preamboli o spiegazioni sul processo.',
+    'IMPORTANTE: rispondi SOLO con il riassunto finale, in un unico blocco di testo scorrevole o con elenchi puntati.',
+    'Non includere in nessun caso il tuo ragionamento, i tuoi passaggi di analisi, meta-commenti sul processo,',
+    'traduzioni letterali dei messaggi originali, o frasi come "L\'utente vuole..." o "Devo...".',
+    'Non ripetere le istruzioni ricevute. Non aggiungere preamboli, titoli, o note finali.',
   ].join(' ');
 
   const userPrompt = [
@@ -115,7 +118,14 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
   }
 
   const payload = await response.json();
-  const summary = payload?.choices?.[0]?.message?.content?.trim();
+  let summary = payload?.choices?.[0]?.message?.content?.trim();
+
+  if (summary) {
+    // Alcuni modelli "reasoning" inseriscono il proprio ragionamento dentro
+    // tag tipo <think>...</think> anche quando gli si chiede di non farlo.
+    // Li rimuoviamo per sicurezza, qualunque sia il modello configurato.
+    summary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  }
 
   if (!summary) {
     throw new Error('OpenRouter non ha restituito un riassunto valido');
