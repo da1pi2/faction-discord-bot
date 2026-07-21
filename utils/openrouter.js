@@ -53,6 +53,8 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
   }
 
   const messages = await fetchRecentMessages(channel, hours);
+  console.log(`[summary] messaggi trovati nelle ultime ${hours}h: ${messages.length}`); // debug temporaneo
+
   if (messages.length === 0) {
     return {
       summary: 'Non ho trovato messaggi sufficienti nel periodo richiesto.',

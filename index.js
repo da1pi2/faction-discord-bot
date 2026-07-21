@@ -10,6 +10,8 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers, // necessario per leggere i ruoli dei membri
+    GatewayIntentBits.GuildMessages, // necessario per /summary (leggere cronologia canale)
+    GatewayIntentBits.MessageContent, // necessario per /summary (contenuto testuale dei messaggi)
   ],
 });
 
@@ -74,7 +76,7 @@ client.on('interactionCreate', async (interaction) => {
     await command.execute(interaction);
   } catch (err) {
     console.error(`Errore eseguendo /${interaction.commandName}:`, err);
-    const errorReply = { content: '❌ An error occurred running this command.', ephemeral: true };
+    const errorReply = { content: '❌ Si e verificato un errore eseguendo il comando.', ephemeral: true };
     if (interaction.deferred || interaction.replied) {
       await interaction.editReply(errorReply).catch(() => {});
     } else {
