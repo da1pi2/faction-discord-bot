@@ -2,7 +2,10 @@ const path = require('path');
 const sharp = require('sharp');
 
 const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
-const MARKER_PATH = path.join(__dirname, '..', 'images', 'location.png');
+const MARKERS = {
+  location: path.join(__dirname, '..', 'images', 'location.png'),
+  defend: path.join(__dirname, '..', 'images', 'defend.png')
+};
 const MAX_X = 2078;
 const MAX_Y = 3308;
 
@@ -66,22 +69,28 @@ async function renderMapWithMarkers(markers) {
 
   const markerWidth = Math.max(24, Math.round(mapMeta.width * MARKER_WIDTH_RATIO));
 
-  const markerBuffer = await sharp(MARKER_PATH)
-    .resize({ width: markerWidth, withoutEnlargement: false })
-    .png()
-    .toBuffer();
-
-  const markerMeta = await sharp(markerBuffer).metadata();
-
-  if (!markerMeta.width || !markerMeta.height) {
-    throw new Error('Unable to read marker image dimensions');
+  // 1. Pre-carichiamo in memoria solo i buffer delle immagini dei marker effettivamente usati in questa chiamata
+  const loadedMarkers = {};
+  for (const marker of markers) {
+    const type = marker.type || 'location';
+    if (!loadedMarkers[type]) {
+      // Se il tipo non esiste nel dizionario, usa 'location' di default
+      const mPath = MARKERS[type] || MARKERS['location'];
+      const markerBuffer = await sharp(mPath)
+        .resize({ width: markerWidth, withoutEnlargement: false })
+        .png()
+        .toBuffer();
+      
+      const markerMeta = await sharp(markerBuffer).metadata();
+      loadedMarkers[type] = { buffer: markerBuffer, meta: markerMeta };
+    }
   }
 
+  // 2. Posizioniamo i marker sulla mappa
   const composite = markers.map((marker) => {
     const gameX = clampCoordinate(marker.x, MAX_X);
     const gameY = clampCoordinate(marker.y, MAX_Y);
 
-    // Sottrae l'offset (la fascia di mare tagliata) prima di scalare in pixel.
     const adjustedX = clampCoordinate(gameX - X_OFFSET_GAME, gameRangeX);
     const adjustedY = clampCoordinate(gameY - Y_OFFSET_GAME, gameRangeY);
 
@@ -89,8 +98,10 @@ async function renderMapWithMarkers(markers) {
     const pixelYRaw = adjustedY * scaleY;
     const pixelY = INVERT_Y ? (mapMeta.height - pixelYRaw) : pixelYRaw;
 
-    // Marker a goccia (stile Google Maps): centrato in X, ancorato con la
-    // punta (base) sulla coordinata verticale, a cui sommiamo l'offset di fine-tuning.
+    // Recupera il buffer e la dimensione del marker specifico
+    const type = marker.type || 'location';
+    const { buffer: markerBuffer, meta: markerMeta } = loadedMarkers[type];
+
     const left = Math.max(
       0,
       Math.min(

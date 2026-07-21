@@ -27,6 +27,17 @@ module.exports = {
         .setMaxValue(MAX_Y)
         .setRequired(false)
     )
+    // NUOVA OPZIONE: Scelta del tipo di marker
+    .addStringOption((opt) =>
+      opt
+        .setName('type')
+        .setDescription('Marker type to use')
+        .setRequired(false)
+        .addChoices(
+          { name: 'Location (Default)', value: 'location' },
+          { name: 'Defend', value: 'defend' }
+        )
+    )
     .addBooleanOption((opt) =>
       opt
         .setName('public')
@@ -43,6 +54,8 @@ module.exports = {
       const parsedCoordinates = parseCoordinatePair(coordinatesInput);
       const rawX = parsedCoordinates?.x ?? interaction.options.getInteger('x');
       const rawY = parsedCoordinates?.y ?? interaction.options.getInteger('y');
+      // RECUPERA IL TIPO (fallback a location se l'utente non lo imposta)
+      const markerType = interaction.options.getString('type') ?? 'location';
 
       if (rawX === null || rawY === null) {
         await interaction.editReply({
@@ -54,7 +67,8 @@ module.exports = {
       const x = clampCoordinate(rawX, MAX_X);
       const y = clampCoordinate(rawY, MAX_Y);
 
-      const { imageBuffer } = await renderMapWithMarkers([{ x, y }]);
+      // PASSA IL TIPO nell'oggetto marker
+      const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: markerType }]);
 
       const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-location.webp' });
 
