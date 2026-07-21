@@ -137,7 +137,7 @@ module.exports = {
       }
 
       const { imageBuffer } = await renderMapWithMarkers(objectives);
-      const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-objectives.png' });
+      const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-objectives.webp' });
 
       await interaction.reply({
         content: `📍 Showing ${objectives.length} saved objective(s).`,

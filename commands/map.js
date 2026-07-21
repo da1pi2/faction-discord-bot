@@ -31,7 +31,7 @@ module.exports = {
 
       const { imageBuffer } = await renderMapWithMarkers([{ x, y }]);
 
-      const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-location.png' });
+      const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-location.webp' });
 
       await interaction.editReply({
         content: `Marker placed at x: ${x}, y: ${y}`,

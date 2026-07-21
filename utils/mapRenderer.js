@@ -42,7 +42,7 @@ async function renderMapWithMarkers(markers) {
 
   const imageBuffer = await sharp(MAP_PATH)
     .composite(composite)
-    .png()
+    .webp({ quality: 92 })
     .toBuffer();
 
   return { imageBuffer };
