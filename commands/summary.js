@@ -60,7 +60,7 @@ module.exports = {
           { name: 'Language', value: language, inline: true },
           { name: 'Messages analyzed', value: String(result.messagesCount), inline: true },
           { name: 'Authors involved', value: String(result.authorsCount), inline: true },
-          { name: 'Model', value: result.model, inline: false }
+          //{ name: 'Model', value: result.model, inline: false }
         );
 
       await interaction.editReply({

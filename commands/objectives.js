@@ -1,0 +1,148 @@
+const { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+const { addObjective, clearObjectives, deleteObjective, listObjectives, updateObjective } = require('../data/db');
+const { MAX_X, MAX_Y, clampCoordinate, renderMapWithMarkers } = require('../utils/mapRenderer');
+
+function buildObjectivesDescription(objectives) {
+  if (objectives.length === 0) {
+    return 'No objectives saved yet.';
+  }
+
+  return objectives.map((objective) => `• **${objective.name}**: ${objective.x}, ${objective.y}`).join('\n');
+}
+
+module.exports = {
+  data: new SlashCommandBuilder()
+    .setName('objectives')
+    .setDescription('Manage persistent map objectives')
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('add')
+        .setDescription('Add a new objective marker')
+        .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
+        .addIntegerOption((opt) =>
+          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(true)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('update')
+        .setDescription('Update an existing objective marker')
+        .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
+        .addIntegerOption((opt) =>
+          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(true)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(true)
+        )
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('remove')
+        .setDescription('Remove an objective marker')
+        .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
+    )
+    .addSubcommand((subcommand) => subcommand.setName('list').setDescription('List all saved objectives'))
+    .addSubcommand((subcommand) => subcommand.setName('show').setDescription('Render the map with all saved objectives'))
+    .addSubcommand((subcommand) => subcommand.setName('clear').setDescription('Remove all saved objectives')),
+
+  async execute(interaction) {
+    const action = interaction.options.getSubcommand();
+
+    if (action === 'add') {
+      const name = interaction.options.getString('name').trim();
+      const x = clampCoordinate(interaction.options.getInteger('x'), MAX_X);
+      const y = clampCoordinate(interaction.options.getInteger('y'), MAX_Y);
+
+      try {
+        addObjective(name, x, y);
+      } catch (error) {
+        if (error && typeof error.code === 'string' && error.code.startsWith('SQLITE_CONSTRAINT')) {
+          await interaction.reply({
+            content: `⚠️ Objective **${name}** already exists. Use /objectives update to move it.`,
+            ephemeral: true,
+          });
+          return;
+        }
+        throw error;
+      }
+
+      await interaction.reply({
+        content: `✅ Objective **${name}** saved at x: ${x}, y: ${y}.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (action === 'update') {
+      const name = interaction.options.getString('name').trim();
+      const x = clampCoordinate(interaction.options.getInteger('x'), MAX_X);
+      const y = clampCoordinate(interaction.options.getInteger('y'), MAX_Y);
+
+      const result = updateObjective(name, x, y);
+
+      if (result.changes === 0) {
+        await interaction.reply({
+          content: `⚠️ Objective **${name}** was not found. Use /objectives add to create it first.`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      await interaction.reply({
+        content: `✅ Objective **${name}** updated to x: ${x}, y: ${y}.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (action === 'remove') {
+      const name = interaction.options.getString('name').trim();
+      const result = deleteObjective(name);
+
+      await interaction.reply({
+        content: result.changes > 0 ? `✅ Objective **${name}** removed.` : `⚠️ Objective **${name}** was not found.`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (action === 'clear') {
+      const result = clearObjectives();
+      await interaction.reply({
+        content: `✅ Cleared ${result.changes} saved objective(s).`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (action === 'list') {
+      const objectives = listObjectives();
+      const embed = new EmbedBuilder()
+        .setTitle('📍 Saved Objectives')
+        .setColor(0x3498db)
+        .setDescription(buildObjectivesDescription(objectives));
+
+      await interaction.reply({ embeds: [embed], ephemeral: true });
+      return;
+    }
+
+    if (action === 'show') {
+      const objectives = listObjectives();
+      if (objectives.length === 0) {
+        await interaction.reply({ content: '⚠️ No objectives saved yet.', ephemeral: true });
+        return;
+      }
+
+      const { imageBuffer } = await renderMapWithMarkers(objectives);
+      const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-objectives.png' });
+
+      await interaction.reply({
+        content: `📍 Showing ${objectives.length} saved objective(s).`,
+        files: [attachment],
+      });
+    }
+  },
+};
