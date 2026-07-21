@@ -29,11 +29,11 @@ function computeAvailability(regionCounts, utcHour) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('when')
-    .setDescription('Stima quanti membri sarebbero disponibili a una certa ora UTC')
+    .setDescription('Estimate how many members would be available at a given UTC hour')
     .addIntegerOption((opt) =>
       opt
         .setName('utc_hour')
-        .setDescription('Ora UTC (0-23)')
+        .setDescription('UTC hour (0-23)')
         .setMinValue(0)
         .setMaxValue(23)
         .setRequired(true)

@@ -11,14 +11,14 @@ function formatMessageLine(message) {
   const author = message.author.bot ? `${message.author.username} [bot]` : message.author.username;
   const content = message.content?.trim();
   const attachments = message.attachments.size
-    ? ` [allegati: ${[...message.attachments.values()].map((file) => file.name || 'file').join(', ')}]`
+    ? ` [attachments: ${[...message.attachments.values()].map((file) => file.name || 'file').join(', ')}]`
     : '';
 
   if (!content && !attachments) {
-    return `[${timestamp}] ${author}: [messaggio senza testo]`;
+    return `[${timestamp}] ${author}: [message without text]`;
   }
 
-  const cleaned = truncate((content || '[contenuto non disponibile]') + attachments, 260);
+  const cleaned = truncate((content || '[content not available]') + attachments, 260);
   return `[${timestamp}] ${author}: ${cleaned}`;
 }
 
@@ -49,15 +49,15 @@ async function fetchRecentMessages(channel, hours, maxMessages = 300) {
 async function summarizeChannelMessages({ channel, guildName, channelName, hours, language }) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY non configurata nel file .env');
+    throw new Error('OPENROUTER_API_KEY is not configured in the .env file');
   }
 
   const messages = await fetchRecentMessages(channel, hours);
-  console.log(`[summary] messaggi trovati nelle ultime ${hours}h: ${messages.length}`); // debug temporaneo
+  console.log(`[summary] messages found in the last ${hours}h: ${messages.length}`); // debug temporaneo
 
   if (messages.length === 0) {
     return {
-      summary: 'Non ho trovato messaggi sufficienti nel periodo richiesto.',
+      summary: 'I did not find enough messages in the requested time window.',
       messagesCount: 0,
       authorsCount: 0,
       model: DEFAULT_MODEL,
@@ -73,23 +73,23 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
     .join('\n');
 
   const systemPrompt = [
-    'Sei un assistente che riassume conversazioni Discord in modo accurato e conciso.',
-    `Scrivi il riassunto in ${language}.`,
-    'Non inventare dettagli mancanti.',
-    'Metti in evidenza: temi principali, decisioni prese, domande aperte, azioni da fare e informazioni importanti.',
-    'Se il contenuto e scarso o rumoroso, dillo chiaramente.',
-    'IMPORTANTE: rispondi SOLO con il riassunto finale, in un unico blocco di testo scorrevole o con elenchi puntati.',
-    'Non includere in nessun caso il tuo ragionamento, i tuoi passaggi di analisi, meta-commenti sul processo,',
-    'traduzioni letterali dei messaggi originali, o frasi come "L\'utente vuole..." o "Devo...".',
-    'Non ripetere le istruzioni ricevute. Non aggiungere preamboli, titoli, o note finali.',
+    'You are an assistant that summarizes Discord conversations accurately and concisely.',
+    `Write the summary in ${language}.`,
+    'Do not invent missing details.',
+    'Highlight the main topics, decisions made, open questions, action items, and important information.',
+    'If the content is sparse or noisy, say so clearly.',
+    'IMPORTANT: reply ONLY with the final summary, as one continuous block of text or with bullet points.',
+    'Do not include your reasoning, analysis steps, process meta-comments, literal translations of the original messages,',
+    'or phrases like "The user wants..." or "I should...".',
+    'Do not repeat the instructions you received. Do not add preambles, titles, or final notes.',
   ].join(' ');
 
   const userPrompt = [
     `Server: ${guildName}`,
-    `Canale: ${channelName}`,
-    `Finestra temporale: ultime ${hours} ore`,
+    `Channel: ${channelName}`,
+    `Time window: last ${hours} hours`,
     '',
-    'Messaggi:',
+    'Messages:',
     transcript,
   ].join('\n');
 
@@ -128,7 +128,7 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
   }
 
   if (!summary) {
-    throw new Error('OpenRouter non ha restituito un riassunto valido');
+    throw new Error('OpenRouter did not return a valid summary');
   }
 
   return {

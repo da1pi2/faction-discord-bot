@@ -7,7 +7,7 @@ const { logSnapshot } = require('../data/db');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('status')
-    .setDescription("Mostra la situazione attuale di attivita dell'alleanza"),
+    .setDescription('Show the current alliance activity status'),
 
   async execute(interaction) {
     await interaction.deferReply();
@@ -39,7 +39,7 @@ module.exports = {
     const regionLines = Object.keys(REGIONS)
       .map((key) => `${REGIONS[key].emoji} ${REGIONS[key].label}: **${summary.byRegion[key]}** players`)
       .join('\n');
-    embed.addFields({ name: 'Regions', value: regionLines || 'Nessun dato' });
+    embed.addFields({ name: 'Regions', value: regionLines || 'No data' });
 
     if (summary.unassigned > 0) {
       embed.addFields({ name: '⚠️ Missing region', value: `${summary.unassigned} members` });

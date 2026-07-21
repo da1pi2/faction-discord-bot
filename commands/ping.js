@@ -16,15 +16,15 @@ const REGION_ALIASES = {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ping')
-    .setDescription('Notifica solo i membri di una categoria specifica')
+    .setDescription('Notify only members of a specific category')
     .addStringOption((opt) =>
       opt
         .setName('category')
-        .setDescription('peak / day / night oppure nome regione (es. europe)')
+        .setDescription('peak / day / night or a region name (e.g. europe)')
         .setRequired(true)
     )
     .addStringOption((opt) =>
-      opt.setName('message').setDescription('Messaggio opzionale da aggiungere').setRequired(false)
+      opt.setName('message').setDescription('Optional message to append').setRequired(false)
     ),
 
   async execute(interaction) {

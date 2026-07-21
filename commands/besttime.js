@@ -9,14 +9,14 @@ const MIN_SAMPLES_FOR_HISTORY = 20; // circa 5 ore di dati con check ogni 15 min
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('besttime')
-    .setDescription("Calcola il miglior orario per gli eventi dell'alleanza"),
+    .setDescription('Calculate the best time for alliance events'),
 
   async execute(interaction) {
     await interaction.deferReply();
 
     const regionCounts = await getRegionCounts(interaction.guild);
 
-    // Calcola il punteggio teorico per tutte le 24 ore UTC
+    // Calculate the theoretical score for all 24 UTC hours
     const hourlyScores = [];
     for (let h = 0; h < 24; h++) {
       const { scorePercent, byStatus } = computeAvailability(regionCounts, h);
@@ -37,7 +37,7 @@ module.exports = {
       });
     }
 
-    // Se abbiamo abbastanza dati storici, aggiungiamo anche quelli
+    // If we have enough historical data, include it too
     const history = getHistoricalAverageByHour();
     const totalSamples = history.reduce((sum, r) => sum + r.samples, 0);
 

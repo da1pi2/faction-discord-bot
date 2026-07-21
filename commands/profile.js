@@ -7,9 +7,9 @@ const { statusFromLocalHour } = require('../config/regions');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('profile')
-    .setDescription('Mostra la tua regione e stato attuale, o quella di un altro membro')
+    .setDescription('Show your current region and status, or another member\'s')
     .addUserOption((opt) =>
-      opt.setName('user').setDescription('Utente di cui vedere il profilo (opzionale)').setRequired(false)
+      opt.setName('user').setDescription('User whose profile to view (optional)').setRequired(false)
     ),
 
   async execute(interaction) {
@@ -35,9 +35,9 @@ module.exports = {
       .setTitle(targetUser.id === interaction.user.id ? '👤 Your Profile' : `👤 ${targetUser.username}'s Profile`)
       .setColor(0xf1c40f)
       .addFields(
-        { name: 'La tua regione', value: `${region.emoji} ${region.label}`, inline: true },
-        { name: 'Ora locale stimata', value: formatHour(localHour), inline: true },
-        { name: 'Stato attuale', value: `${status.emoji} ${status.label}`, inline: true }
+        { name: 'Your region', value: `${region.emoji} ${region.label}`, inline: true },
+        { name: 'Estimated local time', value: formatHour(localHour), inline: true },
+        { name: 'Current status', value: `${status.emoji} ${status.label}`, inline: true }
       );
 
     await interaction.reply({ embeds: [embed], ephemeral: true });

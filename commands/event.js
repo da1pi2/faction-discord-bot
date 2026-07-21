@@ -16,7 +16,7 @@ function parseTimeToday(timeStr) {
   const target = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes, 0)
   );
-  // Se l'orario e gia passato oggi, lo pianifica per domani
+  // If the time has already passed today, schedule it for tomorrow
   if (target.getTime() <= now.getTime()) {
     target.setUTCDate(target.getUTCDate() + 1);
   }
@@ -26,19 +26,19 @@ function parseTimeToday(timeStr) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('event')
-    .setDescription('Crea un evento programmato con promemoria automatico')
-    .addStringOption((opt) => opt.setName('name').setDescription('Nome evento').setRequired(true))
+    .setDescription('Create a scheduled event with automatic reminders')
+    .addStringOption((opt) => opt.setName('name').setDescription('Event name').setRequired(true))
     .addStringOption((opt) =>
-      opt.setName('time').setDescription('Ora UTC nel formato HH:MM (es. 18:00)').setRequired(true)
+      opt.setName('time').setDescription('UTC time in HH:MM format (e.g. 18:00)').setRequired(true)
     )
     .addStringOption((opt) =>
-      opt.setName('description').setDescription('Descrizione evento (opzionale)').setRequired(false)
+      opt.setName('description').setDescription('Event description (optional)').setRequired(false)
     ),
 
   async execute(interaction) {
     const name = interaction.options.getString('name');
     const timeStr = interaction.options.getString('time');
-    const description = interaction.options.getString('description'); // può essere null
+    const description = interaction.options.getString('description'); // may be null
     const targetDate = parseTimeToday(timeStr);
 
     if (!targetDate) {
@@ -63,7 +63,7 @@ module.exports = {
     if (description) embed.addFields({ name: 'Description', value: description });
     await interaction.reply({ embeds: [embed] });
 
-    // Promemoria 30 minuti prima (solo se c'e ancora tempo)
+    // Reminder 30 minutes before, only if there is still time
     if (msUntilReminder > 0) {
       const reminderTimer = setTimeout(() => {
         channel.send(`🐉 **${name}**${description ? `\n${description}` : ''}\nStarts in 30 minutes.`)
@@ -71,7 +71,7 @@ module.exports = {
       scheduledEvents.push(reminderTimer);
     }
 
-    // Notifica all'orario dell'evento
+    // Notify at the event start time
     const startTimer = setTimeout(() => {
       channel.send(`🐉 **${name} started!**${description ? `\n${description}` : ''}`)
     }, Math.max(msUntilEvent, 0));
