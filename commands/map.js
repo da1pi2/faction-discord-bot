@@ -35,7 +35,8 @@ module.exports = {
         .setRequired(false)
         .addChoices(
           { name: 'Location (Default)', value: 'location' },
-          { name: 'Defend', value: 'defend' }
+          { name: 'Defend', value: 'defend' },
+          { name: 'Attack', value: 'attack' } // <-- Aggiunta di Attack
         )
     )
     .addBooleanOption((opt) =>

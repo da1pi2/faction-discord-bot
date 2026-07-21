@@ -4,7 +4,8 @@ const sharp = require('sharp');
 const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
 const MARKERS = {
   location: path.join(__dirname, '..', 'images', 'location.png'),
-  defend: path.join(__dirname, '..', 'images', 'defend.png')
+  defend: path.join(__dirname, '..', 'images', 'defend.png'),
+  attack: path.join(__dirname, '..', 'images', 'attack.png') // <-- Aggiunta di attack.png
 };
 const MAX_X = 2078;
 const MAX_Y = 3308;
