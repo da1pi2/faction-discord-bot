@@ -5,9 +5,22 @@ const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
 const MARKER_PATH = path.join(__dirname, '..', 'images', 'location.png');
 const MAX_X = 2078;
 const MAX_Y = 3308;
+const MARKER_WIDTH = 20;
 
 function clampCoordinate(value, maxValue) {
   return Math.max(0, Math.min(value, maxValue));
+}
+
+function parseCoordinatePair(input) {
+  if (typeof input !== 'string') return null;
+
+  const match = input.trim().match(/^\(?\s*(\d{1,4})\s*,\s*(\d{1,4})\s*\)?$/);
+  if (!match) return null;
+
+  return {
+    x: Number.parseInt(match[1], 10),
+    y: Number.parseInt(match[2], 10),
+  };
 }
 
 function toPixel(value, maxValue, size) {
@@ -16,10 +29,15 @@ function toPixel(value, maxValue, size) {
 }
 
 async function renderMapWithMarkers(markers) {
-  const [mapMeta, markerMeta] = await Promise.all([
+  const [mapMeta, markerBuffer] = await Promise.all([
     sharp(MAP_PATH).metadata(),
-    sharp(MARKER_PATH).metadata(),
+    sharp(MARKER_PATH)
+      .resize({ width: MARKER_WIDTH, withoutEnlargement: true })
+      .png()
+      .toBuffer(),
   ]);
+
+  const markerMeta = await sharp(markerBuffer).metadata();
 
   if (!mapMeta.width || !mapMeta.height || !markerMeta.width || !markerMeta.height) {
     throw new Error('Unable to read map or marker image dimensions');
@@ -34,7 +52,7 @@ async function renderMapWithMarkers(markers) {
     const top = Math.max(0, Math.min(Math.round(pixelY - markerMeta.height), mapMeta.height - markerMeta.height));
 
     return {
-      input: MARKER_PATH,
+      input: markerBuffer,
       left,
       top,
     };
@@ -52,5 +70,6 @@ module.exports = {
   MAX_X,
   MAX_Y,
   clampCoordinate,
+  parseCoordinatePair,
   renderMapWithMarkers,
 };

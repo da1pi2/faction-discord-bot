@@ -1,6 +1,6 @@
-const { AttachmentBuilder, EmbedBuilder, SlashCommandBuilder } = require('discord.js');
+const { AttachmentBuilder, EmbedBuilder, MessageFlags, SlashCommandBuilder } = require('discord.js');
 const { addObjective, clearObjectives, deleteObjective, listObjectives, updateObjective } = require('../data/db');
-const { MAX_X, MAX_Y, clampCoordinate, renderMapWithMarkers } = require('../utils/mapRenderer');
+const { MAX_X, MAX_Y, clampCoordinate, parseCoordinatePair, renderMapWithMarkers } = require('../utils/mapRenderer');
 
 function buildObjectivesDescription(objectives) {
   if (objectives.length === 0) {
@@ -19,11 +19,17 @@ module.exports = {
         .setName('add')
         .setDescription('Add a new objective marker')
         .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
-        .addIntegerOption((opt) =>
-          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(true)
+        .addStringOption((opt) =>
+          opt
+            .setName('coordinates')
+            .setDescription('Coordinates in the form (x, y)')
+            .setRequired(false)
         )
         .addIntegerOption((opt) =>
-          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(true)
+          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(false)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(false)
         )
     )
     .addSubcommand((subcommand) =>
@@ -31,11 +37,17 @@ module.exports = {
         .setName('update')
         .setDescription('Update an existing objective marker')
         .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
-        .addIntegerOption((opt) =>
-          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(true)
+        .addStringOption((opt) =>
+          opt
+            .setName('coordinates')
+            .setDescription('Coordinates in the form (x, y)')
+            .setRequired(false)
         )
         .addIntegerOption((opt) =>
-          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(true)
+          opt.setName('x').setDescription('X coordinate').setMinValue(0).setMaxValue(MAX_X).setRequired(false)
+        )
+        .addIntegerOption((opt) =>
+          opt.setName('y').setDescription('Y coordinate').setMinValue(0).setMaxValue(MAX_Y).setRequired(false)
         )
     )
     .addSubcommand((subcommand) =>
@@ -45,7 +57,17 @@ module.exports = {
         .addStringOption((opt) => opt.setName('name').setDescription('Objective name').setRequired(true))
     )
     .addSubcommand((subcommand) => subcommand.setName('list').setDescription('List all saved objectives'))
-    .addSubcommand((subcommand) => subcommand.setName('show').setDescription('Render the map with all saved objectives'))
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName('show')
+        .setDescription('Render the map with all saved objectives')
+        .addBooleanOption((opt) =>
+          opt
+            .setName('public')
+            .setDescription('Show the image to everyone in the channel')
+            .setRequired(false)
+        )
+    )
     .addSubcommand((subcommand) => subcommand.setName('clear').setDescription('Remove all saved objectives')),
 
   async execute(interaction) {
@@ -53,8 +75,21 @@ module.exports = {
 
     if (action === 'add') {
       const name = interaction.options.getString('name').trim();
-      const x = clampCoordinate(interaction.options.getInteger('x'), MAX_X);
-      const y = clampCoordinate(interaction.options.getInteger('y'), MAX_Y);
+      const coordinatesInput = interaction.options.getString('coordinates');
+      const parsedCoordinates = parseCoordinatePair(coordinatesInput);
+      const rawX = parsedCoordinates?.x ?? interaction.options.getInteger('x');
+      const rawY = parsedCoordinates?.y ?? interaction.options.getInteger('y');
+
+      if (rawX === null || rawY === null) {
+        await interaction.reply({
+          content: '❌ Provide either `coordinates` in the form `(1348, 1551)` or both `x` and `y`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const x = clampCoordinate(rawX, MAX_X);
+      const y = clampCoordinate(rawY, MAX_Y);
 
       try {
         addObjective(name, x, y);
@@ -78,8 +113,21 @@ module.exports = {
 
     if (action === 'update') {
       const name = interaction.options.getString('name').trim();
-      const x = clampCoordinate(interaction.options.getInteger('x'), MAX_X);
-      const y = clampCoordinate(interaction.options.getInteger('y'), MAX_Y);
+      const coordinatesInput = interaction.options.getString('coordinates');
+      const parsedCoordinates = parseCoordinatePair(coordinatesInput);
+      const rawX = parsedCoordinates?.x ?? interaction.options.getInteger('x');
+      const rawY = parsedCoordinates?.y ?? interaction.options.getInteger('y');
+
+      if (rawX === null || rawY === null) {
+        await interaction.reply({
+          content: '❌ Provide either `coordinates` in the form `(1348, 1551)` or both `x` and `y`.',
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const x = clampCoordinate(rawX, MAX_X);
+      const y = clampCoordinate(rawY, MAX_Y);
 
       const result = updateObjective(name, x, y);
 
@@ -130,16 +178,19 @@ module.exports = {
     }
 
     if (action === 'show') {
+      const isPublic = interaction.options.getBoolean('public') ?? false;
+      await interaction.deferReply({ flags: isPublic ? undefined : MessageFlags.Ephemeral });
+
       const objectives = listObjectives();
       if (objectives.length === 0) {
-        await interaction.reply({ content: '⚠️ No objectives saved yet.', ephemeral: true });
+        await interaction.editReply({ content: '⚠️ No objectives saved yet.' });
         return;
       }
 
       const { imageBuffer } = await renderMapWithMarkers(objectives);
       const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-objectives.webp' });
 
-      await interaction.reply({
+      await interaction.editReply({
         content: `📍 Showing ${objectives.length} saved objective(s).`,
         files: [attachment],
       });
