@@ -31,16 +31,14 @@ async function fetchRecentMessages(channel, hours, maxMessages = 300) {
     const batch = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
     if (!batch.size) break;
 
-    const ordered = [...batch.values()].sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-    for (const message of ordered) {
-      if (message.createdTimestamp < cutoff) {
-        return collected;
-      }
+    const messages = [...batch.values()];
+    for (const message of messages) {
+      if (message.createdTimestamp < cutoff) break;
       collected.push(message);
       if (collected.length >= maxMessages) return collected;
     }
 
-    const oldest = ordered[0];
+    const oldest = messages[batch.size - 1];
     if (!oldest || oldest.createdTimestamp < cutoff || batch.size < 100) break;
     before = oldest.id;
   }
