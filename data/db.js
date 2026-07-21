@@ -1,7 +1,9 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const EventEmitter = require('events'); // <-- 1. Importa EventEmitter
 
 const db = new Database(path.join(__dirname, 'activity.sqlite'));
+const dbEvents = new EventEmitter(); // <-- 2. Crea il gestore eventi
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS activity_log (
@@ -37,6 +39,7 @@ function logSnapshot(summary) {
     summary.byStatus.night,
     JSON.stringify(summary.byRegion)
   );
+  dbEvents.emit('update'); // <-- Segnala aggiornamento
 }
 
 // Media di membri attivi (day+peak, escludendo night) raggruppata per ora UTC intera,
@@ -65,6 +68,7 @@ function upsertObjective(name, x, y) {
        y = excluded.y,
        updated_at = excluded.updated_at`
   ).run(name, x, y, now, now);
+  dbEvents.emit('update'); // <-- Segnala aggiornamento
 }
 
 function addObjective(name, x, y) {
@@ -73,6 +77,7 @@ function addObjective(name, x, y) {
     `INSERT INTO map_objectives (name, x, y, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?)`
   ).run(name, x, y, now, now);
+  dbEvents.emit('update'); // <-- Segnala aggiornamento
 }
 
 function updateObjective(name, x, y) {
@@ -82,14 +87,17 @@ function updateObjective(name, x, y) {
      SET x = ?, y = ?, updated_at = ?
      WHERE name = ?`
   ).run(x, y, now, name);
+  if (result.changes > 0) dbEvents.emit('update');
 }
 
 function deleteObjective(name) {
   return db.prepare('DELETE FROM map_objectives WHERE name = ?').run(name);
+  if (result.changes > 0) dbEvents.emit('update');
 }
 
 function clearObjectives() {
   return db.prepare('DELETE FROM map_objectives').run();
+  if (result.changes > 0) dbEvents.emit('update');
 }
 
 function listObjectives() {
@@ -98,6 +106,7 @@ function listObjectives() {
 
 module.exports = {
   db,
+  dbEvents,
   logSnapshot,
   getHistoricalAverageByHour,
   addObjective,
