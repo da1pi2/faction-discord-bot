@@ -5,7 +5,31 @@ const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
 const MARKER_PATH = path.join(__dirname, '..', 'images', 'location.png');
 const MAX_X = 2078;
 const MAX_Y = 3308;
-const MARKER_WIDTH = 40;
+
+// Larghezza del marker come percentuale della larghezza della mappa,
+// invece di un valore fisso in pixel (che sembrava minuscolo).
+const MARKER_WIDTH_RATIO = 0.06;
+
+// --- NUOVE COSTANTI PER IL FINE-TUNING DEL MARKER ---
+// Valori negativi spostano il marker a sinistra (X) e in alto (Y).
+// Modifica questi due valori per aggiustare millimetricamente la posizione.
+const MARKER_OFFSET_X = -140; // Sposta a sinistra
+const MARKER_OFFSET_Y = -100; // Sposta in alto
+
+// Nel gioco l'origine (0,0) e' in basso a sinistra e Y cresce verso l'alto.
+// Nei pixel di un'immagine l'origine e' in alto a sinistra e Y cresce verso
+// il basso: va quindi invertito l'asse Y prima di posizionare il marker.
+const INVERT_Y = true;
+
+// La mappa e' stata composta a mano da piu screenshot e NON copre l'intero
+// range di coordinate del gioco: manca una fascia di mare a sinistra, quindi
+// il pixel 0 dell'immagine corrisponde circa alla coordinata di gioco X_OFFSET
+// (non alla coordinata 0). Valore approssimativo, regolabile a occhio.
+const X_OFFSET_GAME = 200;
+
+// Se in futuro noti che anche l'asse Y e' leggermente tagliato, puoi
+// aggiungere un Y_OFFSET_GAME analogo e sottrarlo allo stesso modo.
+const Y_OFFSET_GAME = 0;
 
 function clampCoordinate(value, maxValue) {
   return Math.max(0, Math.min(value, maxValue));
@@ -24,27 +48,64 @@ function parseCoordinatePair(input) {
 }
 
 async function renderMapWithMarkers(markers) {
-  const [mapMeta, markerBuffer] = await Promise.all([
-    sharp(MAP_PATH).metadata(),
-    sharp(MARKER_PATH)
-      .resize({ width: MARKER_WIDTH, withoutEnlargement: true })
-      .png()
-      .toBuffer(),
-  ]);
+  const mapMeta = await sharp(MAP_PATH).metadata();
+
+  if (!mapMeta.width || !mapMeta.height) {
+    throw new Error('Unable to read map image dimensions');
+  }
+
+  // Range effettivo di coordinate di gioco coperto dall'immagine ritagliata.
+  const gameRangeX = MAX_X - X_OFFSET_GAME;
+  const gameRangeY = MAX_Y - Y_OFFSET_GAME;
+
+  // Scala: pixel reali dell'immagine / range di coordinate di gioco coperto.
+  // Usando le dimensioni reali del file (non assumendo 2078x3308) il calcolo
+  // resta corretto anche se l'immagine e' stata ritagliata o compressa.
+  const scaleX = mapMeta.width / gameRangeX;
+  const scaleY = mapMeta.height / gameRangeY;
+
+  const markerWidth = Math.max(24, Math.round(mapMeta.width * MARKER_WIDTH_RATIO));
+
+  const markerBuffer = await sharp(MARKER_PATH)
+    .resize({ width: markerWidth, withoutEnlargement: false })
+    .png()
+    .toBuffer();
 
   const markerMeta = await sharp(markerBuffer).metadata();
 
-  if (!mapMeta.width || !mapMeta.height || !markerMeta.width || !markerMeta.height) {
-    throw new Error('Unable to read map or marker image dimensions');
+  if (!markerMeta.width || !markerMeta.height) {
+    throw new Error('Unable to read marker image dimensions');
   }
 
   const composite = markers.map((marker) => {
-    const x = clampCoordinate(marker.x, MAX_X);
-    const y = clampCoordinate(marker.y, MAX_Y);
-    const pixelX = clampCoordinate(x, mapMeta.width - 1);
-    const pixelY = clampCoordinate(y, mapMeta.height - 1);
-    const left = Math.max(0, Math.min(Math.round(pixelX - markerMeta.width / 2), mapMeta.width - markerMeta.width));
-    const top = Math.max(0, Math.min(Math.round(pixelY - markerMeta.height), mapMeta.height - markerMeta.height));
+    const gameX = clampCoordinate(marker.x, MAX_X);
+    const gameY = clampCoordinate(marker.y, MAX_Y);
+
+    // Sottrae l'offset (la fascia di mare tagliata) prima di scalare in pixel.
+    const adjustedX = clampCoordinate(gameX - X_OFFSET_GAME, gameRangeX);
+    const adjustedY = clampCoordinate(gameY - Y_OFFSET_GAME, gameRangeY);
+
+    const pixelX = adjustedX * scaleX;
+    const pixelYRaw = adjustedY * scaleY;
+    const pixelY = INVERT_Y ? (mapMeta.height - pixelYRaw) : pixelYRaw;
+
+    // Marker a goccia (stile Google Maps): centrato in X, ancorato con la
+    // punta (base) sulla coordinata verticale, a cui sommiamo l'offset di fine-tuning.
+    const left = Math.max(
+      0,
+      Math.min(
+        Math.round(pixelX - markerMeta.width / 2) + MARKER_OFFSET_X, 
+        mapMeta.width - markerMeta.width
+      )
+    );
+    
+    const top = Math.max(
+      0,
+      Math.min(
+        Math.round(pixelY - markerMeta.height) + MARKER_OFFSET_Y, 
+        mapMeta.height - markerMeta.height
+      )
+    );
 
     return {
       input: markerBuffer,

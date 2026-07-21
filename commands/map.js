@@ -59,7 +59,7 @@ module.exports = {
       const attachment = new AttachmentBuilder(imageBuffer, { name: 'dragonfire-location.webp' });
 
       await interaction.editReply({
-        content: `Marker placed at x: ${x}, y: ${y}`,
+        content: `Marker placed at (${x}, ${y})`,
         files: [attachment],
       });
     } catch (error) {
