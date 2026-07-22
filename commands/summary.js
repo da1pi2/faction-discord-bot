@@ -4,7 +4,7 @@ const { summarizeChannelMessages } = require('../utils/openrouter');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('summary')
-    .setDescription('Summarize recent channel or thread messages with AI')
+    .setDescription('Summarize recent channel messages with AI')
     .setDMPermission(false)
     .addIntegerOption((opt) =>
       opt
@@ -33,11 +33,26 @@ module.exports = {
     const isPublic = interaction.options.getBoolean('public') ?? false;
     const clampSummary = (text) => (text.length > 3900 ? `${text.slice(0, 3897).trimEnd()}...` : text);
 
-    // Controlliamo esplicitamente se è un canale di testo testuale o un thread
-    const isText = interaction.channel?.isTextBased?.() || false;
-    const isThread = interaction.channel?.isThread?.() || false;
+    // 1. Recupero robusto del canale (risolve il problema dei thread non in cache)
+    let channel = interaction.channel;
+    
+    if (!channel || typeof channel.isTextBased !== 'function') {
+      try {
+        channel = await interaction.client.channels.fetch(interaction.channelId);
+      } catch (err) {
+        console.error("Impossibile recuperare il canale/thread:", err);
+        await interaction.reply({
+          content: '❌ Impossibile accedere al canale o thread. Verifica che il bot abbia i permessi di lettura.',
+          ephemeral: true,
+        });
+        return;
+      }
+    }
 
-    if (!interaction.channel || (!isText && !isThread)) {
+    const isText = channel.isTextBased();
+    const isThread = channel.isThread();
+
+    if (!isText && !isThread) {
       await interaction.reply({
         content: '❌ This command only works in a text channel or thread.',
         ephemeral: true,
@@ -45,20 +60,20 @@ module.exports = {
       return;
     }
 
-    // Costruiamo un nome canale descrittivo da passare all'LLM per dargli contesto
-    let contextChannelName = interaction.channel.name || 'channel';
+    // 2. Costruzione del nome canale/thread per dare contesto all'IA
+    let contextChannelName = channel.name || 'channel';
     if (isThread) {
-      const parentName = interaction.channel.parent?.name || 'unknown';
-      contextChannelName = `Thread: "${interaction.channel.name}" (in #${parentName})`;
+      const parentName = channel.parent?.name || 'unknown';
+      contextChannelName = `Thread: "${channel.name}" (in #${parentName})`;
     } else {
-      contextChannelName = `#${interaction.channel.name}`;
+      contextChannelName = `#${channel.name}`;
     }
 
     await interaction.deferReply({ ephemeral: !isPublic });
 
     try {
       const result = await summarizeChannelMessages({
-        channel: interaction.channel,
+        channel: channel, // Passiamo l'oggetto channel "sicuro" che abbiamo appena recuperato
         guildName: interaction.guild?.name || 'Discord server',
         channelName: contextChannelName,
         hours,
