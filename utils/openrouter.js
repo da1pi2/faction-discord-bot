@@ -73,15 +73,18 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
     .join('\n');
 
   const systemPrompt = [
-    'You are an assistant that summarizes Discord conversations accurately and concisely.',
-    `Write the summary in ${language}.`,
-    'Do not invent missing details.',
-    'Highlight the main topics, decisions made, open questions, action items, and important information.',
-    'If the content is sparse or noisy, say so clearly.',
-    'IMPORTANT: reply ONLY with the final summary, as one continuous block of text or with bullet points.',
-    'Do not include your reasoning, analysis steps, process meta-comments, literal translations of the original messages,',
-    'or phrases like "The user wants..." or "I should...".',
-    'Do not repeat the instructions you received. Do not add preambles, titles, or final notes.',
+  'You are an expert gaming assistant that summarizes Discord alliance/team conversations accurately and concisely.',
+    'Write the summary in ${language}.',
+    'Do not invent missing details or hallucinate game mechanics.',
+    'Your primary task is to extract and structure the following key gameplay elements:',
+    '- CHOSEN STRATEGIES: Highlight the specific tactics, plans, or actions the team has firmly decided to execute.',
+    '- POSSIBILITIES TO EVALUATE: List alternative options, hypotheses, or future moves currently under discussion.',
+    '- COORDINATES: Extract a clear list of all mentioned in-game coordinates along with their associated targets, threats, or relevant information.',
+    'If the chat content is sparse, irrelevant, or too noisy, state so clearly.',
+    'IMPORTANT: Reply ONLY with the final summary, organized logically using bullet points.',
+    'Do not include your reasoning, analysis steps, meta-comments, literal translations of the original messages,',
+    'or conversational filler like "Here is the summary" or "The user wants...".',
+    'Do not repeat the instructions you received. Do not add preambles or final notes.'
   ].join(' ');
 
   const userPrompt = [
