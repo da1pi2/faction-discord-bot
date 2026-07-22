@@ -4,7 +4,7 @@ const { summarizeChannelMessages } = require('../utils/openrouter');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('summary')
-    .setDescription('Summarize recent channel messages with AI')
+    .setDescription('Summarize recent channel or thread messages with AI')
     .setDMPermission(false)
     .addIntegerOption((opt) =>
       opt
@@ -33,12 +33,25 @@ module.exports = {
     const isPublic = interaction.options.getBoolean('public') ?? false;
     const clampSummary = (text) => (text.length > 3900 ? `${text.slice(0, 3897).trimEnd()}...` : text);
 
-    if (!interaction.channel || !interaction.channel.isTextBased()) {
+    // Controlliamo esplicitamente se è un canale di testo testuale o un thread
+    const isText = interaction.channel?.isTextBased?.() || false;
+    const isThread = interaction.channel?.isThread?.() || false;
+
+    if (!interaction.channel || (!isText && !isThread)) {
       await interaction.reply({
-        content: '❌ This command only works in a text channel.',
+        content: '❌ This command only works in a text channel or thread.',
         ephemeral: true,
       });
       return;
+    }
+
+    // Costruiamo un nome canale descrittivo da passare all'LLM per dargli contesto
+    let contextChannelName = interaction.channel.name || 'channel';
+    if (isThread) {
+      const parentName = interaction.channel.parent?.name || 'unknown';
+      contextChannelName = `Thread: "${interaction.channel.name}" (in #${parentName})`;
+    } else {
+      contextChannelName = `#${interaction.channel.name}`;
     }
 
     await interaction.deferReply({ ephemeral: !isPublic });
@@ -47,7 +60,7 @@ module.exports = {
       const result = await summarizeChannelMessages({
         channel: interaction.channel,
         guildName: interaction.guild?.name || 'Discord server',
-        channelName: interaction.channel.name || 'channel',
+        channelName: contextChannelName,
         hours,
         language,
       });
@@ -59,8 +72,7 @@ module.exports = {
         .addFields(
           { name: 'Language', value: language, inline: true },
           { name: 'Messages analyzed', value: String(result.messagesCount), inline: true },
-          { name: 'Authors involved', value: String(result.authorsCount), inline: true },
-          //{ name: 'Model', value: result.model, inline: false }
+          { name: 'Authors involved', value: String(result.authorsCount), inline: true }
         );
 
       await interaction.editReply({
