@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { REGIONS, STATUS_ROLES } = require('../config/regions');
+const { STATUS_ROLES } = require('../config/time'); // <-- Import aggiornato
 const { syncGuildActivityRoles } = require('../utils/roleManager');
 const { formatHour } = require('../utils/timeUtils');
 const { logSnapshot } = require('../data/db');
@@ -36,13 +36,11 @@ module.exports = {
         }
       );
 
-    const regionLines = Object.keys(REGIONS)
-      .map((key) => `${REGIONS[key].emoji} ${REGIONS[key].label}: **${summary.byRegion[key]}** players`)
-      .join('\n');
-    embed.addFields({ name: 'Regions', value: regionLines || 'No data' });
-
     if (summary.unassigned > 0) {
-      embed.addFields({ name: '⚠️ Missing region', value: `${summary.unassigned} members` });
+      embed.addFields({ 
+        name: '⚠️ Missing timezone', 
+        value: `${summary.unassigned} members (use /timezone)` 
+      });
     }
 
     embed.setFooter({ text: `Last update: ${formatHour(summary.utcHour)} UTC` });

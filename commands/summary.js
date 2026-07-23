@@ -40,9 +40,9 @@ module.exports = {
       try {
         channel = await interaction.client.channels.fetch(interaction.channelId);
       } catch (err) {
-        console.error("Impossibile recuperare il canale/thread:", err);
+        console.error("Cannot fetch channel/thread:", err);
         await interaction.reply({
-          content: '❌ Impossibile accedere al canale o thread. Verifica che il bot abbia i permessi di lettura.',
+          content: '❌ Cannot access the channel or thread. Please verify that the bot has read permissions.',
           ephemeral: true,
         });
         return;

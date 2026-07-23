@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getRegionCounts } = require('../utils/roleManager');
+const { getOffsetCounts } = require('../utils/roleManager'); // <-- Nuovo import
 const { formatHour } = require('../utils/timeUtils');
 const { computeAvailability } = require('./when');
 const { getHistoricalAverageByHour } = require('../data/db');
@@ -14,14 +14,15 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const regionCounts = await getRegionCounts(interaction.guild);
+    const offsetCounts = await getOffsetCounts(interaction.guild);
 
     // Calculate the theoretical score for all 24 UTC hours
     const hourlyScores = [];
     for (let h = 0; h < 24; h++) {
-      const { scorePercent, byStatus } = computeAvailability(regionCounts, h);
+      const { scorePercent, byStatus } = computeAvailability(offsetCounts, h);
       hourlyScores.push({ hour: h, scorePercent, byStatus });
     }
+    
     hourlyScores.sort((a, b) => b.scorePercent - a.scorePercent);
     const top3 = hourlyScores.slice(0, 3);
 

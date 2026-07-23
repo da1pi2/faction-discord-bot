@@ -24,7 +24,30 @@ db.exec(`
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_timezones (
+    user_id TEXT PRIMARY KEY,
+    utc_offset REAL NOT NULL
+  );
 `);
+
+function setUserTimezone(userId, offset) {
+  db.prepare(`
+    INSERT INTO user_timezones (user_id, utc_offset)
+    VALUES (?, ?)
+    ON CONFLICT(user_id) DO UPDATE SET utc_offset = excluded.utc_offset
+  `).run(userId, offset);
+  dbEvents.emit('update', `Timezone updated for user ${userId}`);
+}
+
+function getUserTimezone(userId) {
+  const row = db.prepare('SELECT utc_offset FROM user_timezones WHERE user_id = ?').get(userId);
+  return row ? row.utc_offset : null;
+}
+
+function getAllTimezones() {
+  return db.prepare('SELECT user_id, utc_offset FROM user_timezones').all();
+}
 
 function logSnapshot(summary) {
   const stmt = db.prepare(`
@@ -37,9 +60,9 @@ function logSnapshot(summary) {
     summary.byStatus.day,
     summary.byStatus.peak,
     summary.byStatus.night,
-    JSON.stringify(summary.byRegion)
+    '{}' // Non tracciamo più le regioni qui
   );
-  dbEvents.emit('update', 'Snapshot automatico attività (sync 15 min)');
+  dbEvents.emit('update', 'Automatic activity snapshot (15 min sync)');
 }
 
 // Media di membri attivi (day+peak, escludendo night) raggruppata per ora UTC intera,
@@ -68,7 +91,7 @@ function upsertObjective(name, x, y) {
        y = excluded.y,
        updated_at = excluded.updated_at`
   ).run(name, x, y, now, now);
-  dbEvents.emit('update', `Obiettivo inserito/aggiornato: ${name}`);
+  dbEvents.emit('update', `Objective inserted/updated: ${name}`);
 }
 
 function addObjective(name, x, y) {
@@ -78,7 +101,7 @@ function addObjective(name, x, y) {
      VALUES (?, ?, ?, ?, ?)`
   ).run(name, x, y, now, now);
   
-  dbEvents.emit('update', `Aggiunto nuovo obiettivo: ${name}`);
+  dbEvents.emit('update', `New objective added: ${name}`);
   return result;
 }
 
@@ -90,19 +113,19 @@ function updateObjective(name, x, y) {
      WHERE name = ?`
   ).run(x, y, now, name);
   
-  if (result.changes > 0) dbEvents.emit('update', `Aggiornato obiettivo: ${name}`);
+  if (result.changes > 0) dbEvents.emit('update', `Objective updated: ${name}`);
   return result;
 }
 
 function deleteObjective(name) {
   const result = db.prepare('DELETE FROM map_objectives WHERE name = ?').run(name);
-  if (result.changes > 0) dbEvents.emit('update', `Eliminato obiettivo: ${name}`);
+  if (result.changes > 0) dbEvents.emit('update', `Objective deleted: ${name}`);
   return result;
 }
 
 function clearObjectives() {
   const result = db.prepare('DELETE FROM map_objectives').run();
-  if (result.changes > 0) dbEvents.emit('update', 'Tutti gli obiettivi sono stati eliminati');
+  if (result.changes > 0) dbEvents.emit('update', 'All objectives have been deleted');
   return result;
 }
 
@@ -126,4 +149,7 @@ module.exports = {
   clearObjectives,
   listObjectives,
   createBackup,
+  setUserTimezone,
+  getUserTimezone,
+  getAllTimezones,
 };

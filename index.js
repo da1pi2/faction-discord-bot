@@ -59,7 +59,7 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
     const attachment = new AttachmentBuilder(backupPath, { name: `dragonfire-db-${dateStr}.sqlite` });
     
     await channel.send({ 
-      content: `📦 **Backup automatico del database**\n🛠️ Ultima operazione: *${reason}*\n🕒 Aggiornato al: ${new Date().toUTCString()}`, 
+      content: `📦 **Automatic Database Backup**\n🛠️ Last operation: *${reason}*\n🕒 Updated at: ${new Date().toUTCString()}`, 
       files: [attachment] 
     });
 
@@ -68,7 +68,7 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
       fs.unlinkSync(backupPath);
     }
   } catch (error) {
-    console.error('Errore durante l\'aggiornamento del backup Discord:', error);
+    console.error('Error during Discord backup update:', error);
   } finally {
     isBackingUp = false;
   }
@@ -80,7 +80,7 @@ client.once('clientReady', async () => {
 
   // --- LISTENER PER IL BACKUP CON DEBOUNCE ---
   let backupTimeout = null;
-  let latestReason = 'Aggiornamento avvio bot';
+  let latestReason = 'Automatic update on bot startup';
   
   dbEvents.on('update', (reason) => {
     if (reason) {

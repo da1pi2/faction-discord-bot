@@ -1,4 +1,4 @@
-const { statusFromLocalHour } = require('../config/regions');
+const { statusFromLocalHour } = require('../config/time');
 
 // Ora UTC corrente come numero decimale (es. 14.5 = 14:30 UTC)
 function currentUtcHour() {
@@ -14,7 +14,7 @@ function toLocalHour(utcHour, offset) {
 }
 
 // Dato un utcHour e un offset regione, restituisce 'day' | 'peak' | 'night'
-function statusForRegionAtUtcHour(utcHour, offset) {
+function statusForOffsetAtUtcHour(utcHour, offset) {
   return statusFromLocalHour(toLocalHour(utcHour, offset));
 }
 
@@ -24,4 +24,4 @@ function formatHour(h) {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-module.exports = { currentUtcHour, toLocalHour, statusForRegionAtUtcHour, formatHour };
+module.exports = { currentUtcHour, toLocalHour, statusForOffsetAtUtcHour, formatHour };

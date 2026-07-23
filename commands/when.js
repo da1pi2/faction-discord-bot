@@ -1,21 +1,24 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { REGIONS, STATUS_ROLES } = require('../config/regions');
-const { getRegionCounts } = require('../utils/roleManager');
-const { statusForRegionAtUtcHour, formatHour } = require('../utils/timeUtils');
+const { STATUS_ROLES } = require('../config/time'); // <-- Import aggiornato
+const { getOffsetCounts } = require('../utils/roleManager'); // <-- Import aggiornato
+const { statusForOffsetAtUtcHour, formatHour } = require('../utils/timeUtils'); // <-- Import aggiornato
 
 // Punteggio pesato: Peak conta di piu, Day meno, Night quasi zero.
 const WEIGHTS = { peak: 1.0, day: 0.5, night: 0.1 };
 
-function computeAvailability(regionCounts, utcHour) {
+function computeAvailability(offsetCounts, utcHour) {
   const byStatus = { day: 0, peak: 0, night: 0 };
   let totalMembers = 0;
   let weightedScore = 0;
 
-  for (const key of Object.keys(REGIONS)) {
-    const count = regionCounts[key] || 0;
+  // offsetCounts è un oggetto tipo { "-5": 10, "1": 25, "8": 5 }
+  for (const [offsetStr, count] of Object.entries(offsetCounts)) {
     if (count === 0) continue;
+    
     totalMembers += count;
-    const status = statusForRegionAtUtcHour(utcHour, REGIONS[key].offset);
+    const offset = parseFloat(offsetStr); // Convertiamo la chiave in numero
+    const status = statusForOffsetAtUtcHour(utcHour, offset);
+    
     byStatus[status] += count;
     weightedScore += count * WEIGHTS[status];
   }
@@ -43,9 +46,10 @@ module.exports = {
     await interaction.deferReply();
 
     const utcHour = interaction.options.getInteger('utc_hour');
-    const regionCounts = await getRegionCounts(interaction.guild);
-    const { byStatus, scorePercent } = computeAvailability(regionCounts, utcHour);
-
+    // Usiamo getOffsetCounts al posto di getRegionCounts
+    const offsetCounts = await getOffsetCounts(interaction.guild); 
+    const { byStatus, scorePercent } = computeAvailability(offsetCounts, utcHour);
+    
     const embed = new EmbedBuilder()
       .setTitle(`🕒 Event time: ${formatHour(utcHour)} UTC`)
       .setColor(0x3498db)
