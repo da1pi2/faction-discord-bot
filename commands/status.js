@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { STATUS_ROLES } = require('../config/time'); // <-- Import aggiornato
+const { STATUS_ROLES } = require('../config/time'); 
 const { syncGuildActivityRoles } = require('../utils/roleManager');
 const { formatHour } = require('../utils/timeUtils');
 const { logSnapshot } = require('../data/db');
@@ -20,8 +20,8 @@ module.exports = {
       .setColor(0x2ecc71)
       .addFields(
         {
-          name: `${STATUS_ROLES.peak.emoji} Peak Time`,
-          value: `${summary.byStatus.peak} players`,
+          name: `${STATUS_ROLES.available.emoji} Available`,
+          value: `${summary.byStatus.available} players`,
           inline: true,
         },
         {

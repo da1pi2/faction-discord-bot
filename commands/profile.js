@@ -1,7 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { STATUS_ROLES, statusFromLocalHour } = require('../config/time'); // <-- Import aggiornato
-const { getUserTimezone } = require('../data/db'); // <-- Import aggiornato
-const { currentUtcHour, toLocalHour, formatHour } = require('../utils/timeUtils');
+const { STATUS_ROLES } = require('../config/time');
+const { getUserTimezone, getUserAvailabilities } = require('../data/db');
+const { currentUtcHour, toLocalHour, formatHour, statusForOffsetAtUtcHour } = require('../utils/timeUtils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,10 +14,9 @@ module.exports = {
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user') ?? interaction.user;
     
-    // Leggiamo l'offset dal DB al posto di getMemberRegionKey
-    const offset = getUserTimezone(targetUser.id);
+    const userTz = getUserTimezone(targetUser.id);
 
-    if (offset === null) {
+    if (!userTz) {
       await interaction.reply({
         content: `⚠️ ${targetUser.id === interaction.user.id ? 'You have' : `${targetUser.username} has`} not set a timezone yet. Use \`/timezone\`.`,
         ephemeral: true,
@@ -26,22 +25,30 @@ module.exports = {
     }
 
     const utcHour = currentUtcHour();
-    const localHour = toLocalHour(utcHour, offset);
+    const localHour = toLocalHour(utcHour, userTz.utc_offset);
     
-    const statusKey = statusFromLocalHour(localHour);
+    const userSlots = getUserAvailabilities(targetUser.id);
+    const statusKey = statusForOffsetAtUtcHour(utcHour, userTz.utc_offset, userSlots);
     const status = STATUS_ROLES[statusKey];
 
-    // Formattazione per mostrare "+" davanti ai numeri positivi (es. UTC+1)
-    const sign = offset > 0 ? '+' : '';
+    const sign = userTz.utc_offset > 0 ? '+' : '';
 
     const embed = new EmbedBuilder()
       .setTitle(targetUser.id === interaction.user.id ? '👤 Your Profile' : `👤 ${targetUser.username}'s Profile`)
       .setColor(0xf1c40f)
       .addFields(
-        { name: 'Timezone', value: `UTC${sign}${offset}`, inline: true },
+        { name: 'Timezone', value: `UTC${sign}${userTz.utc_offset}`, inline: true },
         { name: 'Estimated local time', value: formatHour(localHour), inline: true },
         { name: 'Current status', value: `${status.emoji} ${status.label}`, inline: true }
       );
+
+    if (userSlots && userSlots.length > 0) {
+      const slotsFormatted = userSlots.map(s => `\`${String(s.available_start).padStart(2, '0')}:00 - ${String(s.available_end).padStart(2, '0')}:00\``).join(', ');
+      embed.addFields({
+         name: 'Custom Availability',
+         value: `${slotsFormatted} (Local time)`
+      });
+    }
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
   },

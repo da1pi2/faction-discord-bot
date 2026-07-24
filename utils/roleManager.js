@@ -1,9 +1,7 @@
 const { STATUS_ROLES } = require('../config/time');
-const { getAllTimezones } = require('../data/db');
+const { getAllTimezones, getUserAvailabilities } = require('../data/db');
 const { currentUtcHour, statusForOffsetAtUtcHour } = require('./timeUtils');
 
-// Crea i ruoli di stato (Day/Peak/Night) sul server se non esistono ancora.
-// Va chiamato una volta all'avvio del bot per ogni guild.
 async function ensureStatusRolesExist(guild) {
   const roleMap = {};
   for (const key of Object.keys(STATUS_ROLES)) {
@@ -25,24 +23,22 @@ async function syncGuildActivityRoles(guild) {
   const statusRoles = await ensureStatusRolesExist(guild);
   const utcHour = currentUtcHour();
   
-  // Carica tutti i fusi orari in memoria per non fare query in un ciclo loop
   const allTz = getAllTimezones();
-  const tzMap = new Map(allTz.map(row => [row.user_id, row.utc_offset]));
+  const tzMap = new Map(allTz.map(row => [row.user_id, row]));
 
   const summary = {
     utcHour,
-    byStatus: { day: 0, peak: 0, night: 0 },
+    byStatus: { available: 0, day: 0, night: 0 },
     unassigned: 0,
   };
 
   for (const [, member] of guild.members.cache) {
     if (member.user.bot) continue;
 
-    const offset = tzMap.get(member.id);
+    const tzData = tzMap.get(member.id);
 
-    if (offset === undefined) {
+    if (!tzData) {
       summary.unassigned += 1;
-      // Rimuovi ruoli se non ha più l'offset
       for (const key of Object.keys(STATUS_ROLES)) {
         if (member.roles.cache.has(statusRoles[key].id)) {
           await member.roles.remove(statusRoles[key]).catch(() => {});
@@ -51,7 +47,9 @@ async function syncGuildActivityRoles(guild) {
       continue;
     }
 
-    const status = statusForOffsetAtUtcHour(utcHour, offset); 
+    // MODIFICA QUI: Recuperiamo l'array di slot dal DB e lo passiamo
+    const userSlots = getUserAvailabilities(member.id);
+    const status = statusForOffsetAtUtcHour(utcHour, tzData.utc_offset, userSlots); 
     summary.byStatus[status] += 1;
 
     for (const key of Object.keys(STATUS_ROLES)) {
@@ -66,24 +64,28 @@ async function syncGuildActivityRoles(guild) {
   return summary;
 }
 
-// Nuovo metodo per recuperare i raggruppamenti (utile per /when e /besttime)
-async function getOffsetCounts(guild) {
+async function getGuildMembersTimezones(guild) {
   const allTz = getAllTimezones();
-  const tzMap = new Map(allTz.map(row => [row.user_id, row.utc_offset]));
-  const counts = {}; // { "-5": 10, "1": 25, ... }
+  const tzMap = new Map(allTz.map(row => [row.user_id, row]));
+  const activeMembers = [];
 
   for (const [, member] of guild.members.cache) {
     if (member.user.bot) continue;
-    const offset = tzMap.get(member.id);
-    if (offset !== undefined) {
-      counts[offset] = (counts[offset] || 0) + 1;
+    const tzData = tzMap.get(member.id);
+    if (tzData) {
+      // MODIFICA QUI: Costruiamo l'oggetto includendo gli slot reali
+      const userSlots = getUserAvailabilities(member.id);
+      activeMembers.push({
+        utc_offset: tzData.utc_offset,
+        slots: userSlots
+      });
     }
   }
-  return counts;
+  return activeMembers;
 }
 
 module.exports = {
   ensureStatusRolesExist,
   syncGuildActivityRoles,
-  getOffsetCounts,
+  getGuildMembersTimezones,
 };

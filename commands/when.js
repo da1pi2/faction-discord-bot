@@ -1,29 +1,24 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { STATUS_ROLES } = require('../config/time'); // <-- Import aggiornato
-const { getOffsetCounts } = require('../utils/roleManager'); // <-- Import aggiornato
-const { statusForOffsetAtUtcHour, formatHour } = require('../utils/timeUtils'); // <-- Import aggiornato
+const { STATUS_ROLES } = require('../config/time'); 
+const { getGuildMembersTimezones } = require('../utils/roleManager'); 
+const { statusForOffsetAtUtcHour, formatHour } = require('../utils/timeUtils'); 
 
-// Punteggio pesato: Peak conta di piu, Day meno, Night quasi zero.
-const WEIGHTS = { peak: 1.0, day: 0.5, night: 0.1 };
+const WEIGHTS = { available: 1.0, day: 0.6, night: 0.1 };
 
-function computeAvailability(offsetCounts, utcHour) {
-  const byStatus = { day: 0, peak: 0, night: 0 };
+function computeAvailability(membersData, utcHour) {
+  const byStatus = { available: 0, day: 0, night: 0 };
   let totalMembers = 0;
   let weightedScore = 0;
 
-  // offsetCounts è un oggetto tipo { "-5": 10, "1": 25, "8": 5 }
-  for (const [offsetStr, count] of Object.entries(offsetCounts)) {
-    if (count === 0) continue;
-    
-    totalMembers += count;
-    const offset = parseFloat(offsetStr); // Convertiamo la chiave in numero
-    const status = statusForOffsetAtUtcHour(utcHour, offset);
-    
-    byStatus[status] += count;
-    weightedScore += count * WEIGHTS[status];
+  for (const data of membersData) {
+    totalMembers++;
+    // MODIFICA QUI: Usa data.slots
+    const status = statusForOffsetAtUtcHour(utcHour, data.utc_offset, data.slots);
+    byStatus[status]++;
+    weightedScore += WEIGHTS[status];
   }
 
-  const maxPossibleScore = totalMembers * WEIGHTS.peak;
+  const maxPossibleScore = totalMembers * WEIGHTS.available;
   const scorePercent = maxPossibleScore > 0 ? Math.round((weightedScore / maxPossibleScore) * 100) : 0;
 
   return { byStatus, scorePercent, totalMembers };
@@ -46,15 +41,14 @@ module.exports = {
     await interaction.deferReply();
 
     const utcHour = interaction.options.getInteger('utc_hour');
-    // Usiamo getOffsetCounts al posto di getRegionCounts
-    const offsetCounts = await getOffsetCounts(interaction.guild); 
-    const { byStatus, scorePercent } = computeAvailability(offsetCounts, utcHour);
+    const membersData = await getGuildMembersTimezones(interaction.guild); 
+    const { byStatus, scorePercent } = computeAvailability(membersData, utcHour);
     
     const embed = new EmbedBuilder()
       .setTitle(`🕒 Event time: ${formatHour(utcHour)} UTC`)
       .setColor(0x3498db)
       .addFields(
-        { name: `${STATUS_ROLES.peak.emoji} Peak`, value: `${byStatus.peak} players`, inline: true },
+        { name: `${STATUS_ROLES.available.emoji} Avail.`, value: `${byStatus.available} players`, inline: true },
         { name: `${STATUS_ROLES.day.emoji} Day`, value: `${byStatus.day} players`, inline: true },
         { name: `${STATUS_ROLES.night.emoji} Night`, value: `${byStatus.night} players`, inline: true },
         { name: 'Score', value: `${scorePercent}%` }
@@ -63,5 +57,5 @@ module.exports = {
     await interaction.editReply({ embeds: [embed] });
   },
 
-  computeAvailability, // esportata per riuso in /besttime
+  computeAvailability,
 };

@@ -1,10 +1,10 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { getOffsetCounts } = require('../utils/roleManager'); // <-- Nuovo import
+const { getGuildMembersTimezones } = require('../utils/roleManager');
 const { formatHour } = require('../utils/timeUtils');
 const { computeAvailability } = require('./when');
 const { getHistoricalAverageByHour } = require('../data/db');
 
-const MIN_SAMPLES_FOR_HISTORY = 20; // circa 5 ore di dati con check ogni 15 min
+const MIN_SAMPLES_FOR_HISTORY = 20;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,12 +14,11 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const offsetCounts = await getOffsetCounts(interaction.guild);
+    const membersData = await getGuildMembersTimezones(interaction.guild);
 
-    // Calculate the theoretical score for all 24 UTC hours
     const hourlyScores = [];
     for (let h = 0; h < 24; h++) {
-      const { scorePercent, byStatus } = computeAvailability(offsetCounts, h);
+      const { scorePercent, byStatus } = computeAvailability(membersData, h);
       hourlyScores.push({ hour: h, scorePercent, byStatus });
     }
     
@@ -29,31 +28,30 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setTitle('📊 Best Event Time Analysis')
       .setColor(0x9b59b6)
-      .setDescription('Theoretical estimate based on current regional distribution.');
+      .setDescription('Theoretical estimate based on current regional and custom availability.');
 
     for (const entry of top3) {
       embed.addFields({
         name: `${formatHour(entry.hour)} UTC — Score: ${entry.scorePercent}%`,
-        value: `🔥 Peak: ${entry.byStatus.peak} | ☀️ Day: ${entry.byStatus.day} | 🌙 Night: ${entry.byStatus.night}`,
+        value: `✅ Avail: ${entry.byStatus.available} | ☀️ Day: ${entry.byStatus.day} | 🌙 Night: ${entry.byStatus.night}`,
       });
     }
 
-    // If we have enough historical data, include it too
-    const history = getHistoricalAverageByHour();
-    const totalSamples = history.reduce((sum, r) => sum + r.samples, 0);
+    // const history = getHistoricalAverageByHour();
+    // const totalSamples = history.reduce((sum, r) => sum + r.samples, 0);
 
-    if (totalSamples >= MIN_SAMPLES_FOR_HISTORY && history.length > 0) {
-      const best = history[0];
-      embed.addFields({
-        name: '[BETA] 📈 Historical Data (based on real activity)',
-        value: `Best observed time: **${best.hour_bucket}:00 UTC**\nAverage active members: **${Math.round(best.avg_active)}**\n(${totalSamples} recordings saved)`,
-      });
-    } else {
-      embed.addFields({
-        name: '[BETA] 📈 Historical Data',
-        value: `Still collecting data (${totalSamples}/${MIN_SAMPLES_FOR_HISTORY}). The bot records automatically every 15 minutes: come back in a few days for an analysis based on real activity.`,
-      });
-    }
+    // if (totalSamples >= MIN_SAMPLES_FOR_HISTORY && history.length > 0) {
+    //   const best = history[0];
+    //   embed.addFields({
+    //     name: '[BETA] 📈 Historical Data (based on real activity)',
+    //     value: `Best observed time: **${best.hour_bucket}:00 UTC**\nAverage active members: **${Math.round(best.avg_active)}**\n(${totalSamples} recordings saved)`,
+    //   });
+    // } else {
+    //   embed.addFields({
+    //     name: '[BETA] 📈 Historical Data',
+    //     value: `Still collecting data (${totalSamples}/${MIN_SAMPLES_FOR_HISTORY}). The bot records automatically every 15 minutes: come back in a few days for an analysis based on real activity.`,
+    //   });
+    // }
 
     await interaction.editReply({ embeds: [embed] });
   },

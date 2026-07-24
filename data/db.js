@@ -1,9 +1,9 @@
 const Database = require('better-sqlite3');
 const path = require('path');
-const EventEmitter = require('events'); // <-- 1. Importa EventEmitter
+const EventEmitter = require('events');
 
 const db = new Database(path.join(__dirname, 'activity.sqlite'));
-const dbEvents = new EventEmitter(); // <-- 2. Crea il gestore eventi
+const dbEvents = new EventEmitter();
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS activity_log (
@@ -29,7 +29,19 @@ db.exec(`
     user_id TEXT PRIMARY KEY,
     utc_offset REAL NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS user_availabilities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    available_start INTEGER NOT NULL,
+    available_end INTEGER NOT NULL
+  );
 `);
+
+// Migrazioni automatiche sicure: aggiunge le colonne ai DB esistenti.
+try { db.prepare('ALTER TABLE user_timezones ADD COLUMN available_start INTEGER').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE user_timezones ADD COLUMN available_end INTEGER').run(); } catch(e) {}
+try { db.prepare('ALTER TABLE activity_log ADD COLUMN available_count INTEGER DEFAULT 0').run(); } catch(e) {}
 
 function setUserTimezone(userId, offset) {
   db.prepare(`
@@ -40,38 +52,49 @@ function setUserTimezone(userId, offset) {
   dbEvents.emit('update', `Timezone updated for user ${userId}`);
 }
 
+// Nuova funzione per salvare lo slot custom
+function setUserAvailability(userId, start, end) {
+  const result = db.prepare(`
+    UPDATE user_timezones
+    SET available_start = ?, available_end = ?
+    WHERE user_id = ?
+  `).run(start, end, userId);
+  if (result.changes > 0) dbEvents.emit('update', `Availability updated for user ${userId}`);
+  return result.changes > 0;
+}
+
+// Ora restituisce l'oggetto completo
 function getUserTimezone(userId) {
-  const row = db.prepare('SELECT utc_offset FROM user_timezones WHERE user_id = ?').get(userId);
-  return row ? row.utc_offset : null;
+  const row = db.prepare('SELECT utc_offset, available_start, available_end FROM user_timezones WHERE user_id = ?').get(userId);
+  return row || null;
 }
 
 function getAllTimezones() {
-  return db.prepare('SELECT user_id, utc_offset FROM user_timezones').all();
+  return db.prepare('SELECT user_id, utc_offset, available_start, available_end FROM user_timezones').all();
 }
 
 function logSnapshot(summary) {
   const stmt = db.prepare(`
-    INSERT INTO activity_log (timestamp, utc_hour, day_count, peak_count, night_count, region_json)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO activity_log (timestamp, utc_hour, day_count, peak_count, night_count, available_count, region_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   stmt.run(
     new Date().toISOString(),
     summary.utcHour,
-    summary.byStatus.day,
-    summary.byStatus.peak,
-    summary.byStatus.night,
-    '{}' // Non tracciamo più le regioni qui
+    summary.byStatus.day || 0,
+    summary.byStatus.peak || 0, // <-- Passa 0 invece di undefined
+    summary.byStatus.night || 0,
+    summary.byStatus.available || 0,
+    '{}'
   );
   dbEvents.emit('update', 'Automatic activity snapshot (15 min sync)');
 }
 
-// Media di membri attivi (day+peak, escludendo night) raggruppata per ora UTC intera,
-// utile per /besttime versione storica dopo qualche giorno di dati raccolti.
 function getHistoricalAverageByHour() {
   const rows = db
     .prepare(
       `SELECT CAST(utc_hour AS INTEGER) AS hour_bucket,
-              AVG(day_count + peak_count) AS avg_active,
+              AVG(day_count + peak_count + COALESCE(available_count, 0)) AS avg_active,
               COUNT(*) AS samples
        FROM activity_log
        GROUP BY hour_bucket
@@ -137,6 +160,39 @@ function createBackup(destinationPath) {
   return db.backup(destinationPath);
 }
 
+function addUserAvailability(userId, start, end) {
+  db.prepare(`
+    INSERT INTO user_availabilities (user_id, available_start, available_end)
+    VALUES (?, ?, ?)
+  `).run(userId, start, end);
+  dbEvents.emit('update', `Availability added for user ${userId}`);
+}
+
+function clearUserAvailabilities(userId) {
+  const result = db.prepare('DELETE FROM user_availabilities WHERE user_id = ?').run(userId);
+  if (result.changes > 0) dbEvents.emit('update', `Availabilities cleared for user ${userId}`);
+  return result.changes > 0;
+}
+
+function deleteUserAvailabilityById(id, userId) {
+  const result = db.prepare('DELETE FROM user_availabilities WHERE id = ? AND user_id = ?').run(id, userId);
+  if (result.changes > 0) dbEvents.emit('update', `Availability slot ${id} deleted`);
+  return result.changes > 0;
+}
+
+function getUserAvailabilities(userId) {
+  return db.prepare('SELECT id, available_start, available_end FROM user_availabilities WHERE user_id = ?').all(userId);
+}
+
+function getAllAvailabilities() {
+  return db.prepare(`
+    SELECT a.id, a.user_id, t.utc_offset, a.available_start, a.available_end
+    FROM user_availabilities a
+    JOIN user_timezones t ON a.user_id = t.user_id
+    ORDER BY a.user_id
+  `).all();
+}
+
 module.exports = {
   db,
   dbEvents,
@@ -150,6 +206,12 @@ module.exports = {
   listObjectives,
   createBackup,
   setUserTimezone,
+  setUserAvailability,
   getUserTimezone,
   getAllTimezones,
+  getAllAvailabilities,
+  getUserAvailabilities,
+  addUserAvailability,
+  clearUserAvailabilities,
+  deleteUserAvailabilityById,
 };
