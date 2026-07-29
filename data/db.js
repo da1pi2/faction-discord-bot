@@ -52,15 +52,13 @@ function setUserTimezone(userId, offset) {
   dbEvents.emit('update', `Timezone updated for user ${userId}`);
 }
 
-// Nuova funzione per salvare lo slot custom
 function setUserAvailability(userId, start, end) {
-  const result = db.prepare(`
-    UPDATE user_timezones
-    SET available_start = ?, available_end = ?
-    WHERE user_id = ?
-  `).run(start, end, userId);
-  if (result.changes > 0) dbEvents.emit('update', `Availability updated for user ${userId}`);
-  return result.changes > 0;
+  db.prepare('DELETE FROM user_availabilities WHERE user_id = ?').run(userId);
+  if (start !== null && end !== null) {
+    db.prepare('INSERT INTO user_availabilities (user_id, available_start, available_end) VALUES (?, ?, ?)').run(userId, start, end);
+  }
+  dbEvents.emit('update', `Availability updated for user ${userId}`);
+  return true;
 }
 
 // Ora restituisce l'oggetto completo

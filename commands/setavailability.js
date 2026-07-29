@@ -1,5 +1,10 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const { getUserTimezone, setUserAvailability } = require('../data/db');
+const { 
+  getUserTimezone, 
+  addUserAvailability, 
+  clearUserAvailabilities, 
+  getUserAvailabilities 
+} = require('../data/db');
 const { syncGuildActivityRoles } = require('../utils/roleManager');
 
 module.exports = {
@@ -54,14 +59,17 @@ module.exports = {
       const start = interaction.options.getInteger('start');
       const end = interaction.options.getInteger('end');
 
-      setUserAvailability(targetUser.id, start, end);
+      // Pulisce i vecchi slot e imposta il nuovo slot per l'utente
+      clearUserAvailabilities(targetUser.id);
+      addUserAvailability(targetUser.id, start, end);
+
       await syncGuildActivityRoles(interaction.guild);
 
       await interaction.editReply({
         content: `✅ Updated availability slot for **${targetUser.username}**: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00** (Local time).\nTheir activity roles have been updated automatically.`,
       });
     } else if (subcommand === 'clear') {
-      setUserAvailability(targetUser.id, null, null);
+      clearUserAvailabilities(targetUser.id);
       await syncGuildActivityRoles(interaction.guild);
 
       await interaction.editReply({

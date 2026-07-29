@@ -3,6 +3,7 @@ const { STATUS_ROLES } = require('../config/time');
 const { syncGuildActivityRoles } = require('../utils/roleManager');
 const { formatHour } = require('../utils/timeUtils');
 const { logSnapshot } = require('../data/db');
+const { toUnixTimestamp } = require('../utils/timeUtils');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -43,7 +44,9 @@ module.exports = {
       });
     }
 
-    embed.setFooter({ text: `Last update: ${formatHour(summary.utcHour)} UTC` });
+    const nowUnix = toUnixTimestamp(new Date());
+    embed.setFooter({ text: `Last update` });
+    embed.addFields({ name: 'Updated', value: `<t:${nowUnix}:R> (<t:${nowUnix}:t>)` });
 
     await interaction.editReply({ embeds: [embed] });
   },

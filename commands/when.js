@@ -1,7 +1,8 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { STATUS_ROLES } = require('../config/time'); 
 const { getGuildMembersTimezones } = require('../utils/roleManager'); 
-const { statusForOffsetAtUtcHour, formatHour } = require('../utils/timeUtils'); 
+const { statusForOffsetAtUtcHour, formatHour } = require('../utils/timeUtils');
+const { getTodayUtcHourTimestamp } = require('../utils/timeUtils');
 
 const WEIGHTS = { available: 1.0, day: 0.6, night: 0.1 };
 
@@ -41,11 +42,13 @@ module.exports = {
     await interaction.deferReply();
 
     const utcHour = interaction.options.getInteger('utc_hour');
+    const unixSec = getTodayUtcHourTimestamp(utcHour);
     const membersData = await getGuildMembersTimezones(interaction.guild); 
     const { byStatus, scorePercent } = computeAvailability(membersData, utcHour);
     
     const embed = new EmbedBuilder()
-      .setTitle(`🕒 Event time: ${formatHour(utcHour)} UTC`)
+      .setTitle(`🕒 Alliance Availability at ${formatHour(utcHour)} UTC`)
+      .setDescription(`Your local time: **<t:${unixSec}:t>** (<t:${unixSec}:R>)`)
       .setColor(0x3498db)
       .addFields(
         { name: `${STATUS_ROLES.available.emoji} Avail.`, value: `${byStatus.available} players`, inline: true },

@@ -22,4 +22,25 @@ function formatHour(h) {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
-module.exports = { currentUtcHour, toLocalHour, statusForOffsetAtUtcHour, formatHour };
+/**
+ * Converte una Date di JS in Unix timestamp in secondi
+ */
+function toUnixTimestamp(date) {
+  return Math.floor(date.getTime() / 1000);
+}
+
+/**
+ * Calcola il timestamp Unix per un'ora UTC di oggi (o domani se già passata)
+ * @param {number} utcHour - Ora in UTC (es. 18 o 18.5)
+ */
+function getTodayUtcHourTimestamp(utcHour) {
+  const now = new Date();
+  const hours = Math.floor(utcHour);
+  const minutes = Math.round((utcHour - hours) * 60);
+
+  const target = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hours, minutes, 0));
+  
+  return Math.floor(target.getTime() / 1000);
+}
+
+module.exports = { currentUtcHour, toLocalHour, statusForOffsetAtUtcHour, formatHour, toUnixTimestamp, getTodayUtcHourTimestamp };

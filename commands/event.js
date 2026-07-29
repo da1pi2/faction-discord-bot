@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { toUnixTimestamp } = require('../utils/timeUtils');
 
 // Timer in memoria: semplice ma NON sopravvive a un riavvio del bot.
 // Per un'alleanza di 50 persone va bene; se serve persistenza vera,
@@ -39,7 +40,18 @@ module.exports = {
     const name = interaction.options.getString('name');
     const timeStr = interaction.options.getString('time');
     const description = interaction.options.getString('description'); // may be null
+    
     const targetDate = parseTimeToday(timeStr);
+
+    if (!targetDate) {
+      await interaction.reply({
+        content: '❌ Invalid time format. Use UTC HH:MM, e.g. 18:00.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const unixSec = toUnixTimestamp(targetDate);
 
     if (!targetDate) {
       await interaction.reply({
@@ -57,9 +69,11 @@ module.exports = {
       .setTitle('📅 Event Scheduled')
       .setColor(0xe67e22)
       .addFields(
-        { name: 'Name', value: name, inline: true },
-        { name: 'Time', value: `${timeStr} UTC`, inline: true }
+        { name: 'Event', value: name, inline: true },
+        { name: 'Local Time for You', value: `<t:${unixSec}:F>`, inline: false },
+        { name: 'Starts In', value: `<t:${unixSec}:R>`, inline: true }
       );
+      
     if (description) embed.addFields({ name: 'Description', value: description });
     await interaction.reply({ embeds: [embed] });
 
