@@ -1,7 +1,7 @@
 const path = require('path');
 const sharp = require('sharp');
 
-const MAP_PATH = path.join(__dirname, '..', 'images', 'map_dragonfire.png');
+const MAP_PATH = path.join(__dirname, '..', 'images', 'map_clear.png');
 const MARKERS = {
   location: path.join(__dirname, '..', 'images', 'location.png'),
   defend: path.join(__dirname, '..', 'images', 'defend.png'),
@@ -12,13 +12,13 @@ const MAX_Y = 3308;
 
 // Larghezza del marker come percentuale della larghezza della mappa,
 // invece di un valore fisso in pixel (che sembrava minuscolo).
-const MARKER_WIDTH_RATIO = 0.06;
+const MARKER_WIDTH_RATIO = 0.07;
 
 // --- NUOVE COSTANTI PER IL FINE-TUNING DEL MARKER ---
 // Valori negativi spostano il marker a sinistra (X) e in alto (Y).
 // Modifica questi due valori per aggiustare millimetricamente la posizione.
-const MARKER_OFFSET_X = -140; // Sposta a sinistra
-const MARKER_OFFSET_Y = -100; // Sposta in alto
+const MARKER_OFFSET_X = -130; // Sposta a sinistra
+const MARKER_OFFSET_Y = -40; // Sposta in alto
 
 // Nel gioco l'origine (0,0) e' in basso a sinistra e Y cresce verso l'alto.
 // Nei pixel di un'immagine l'origine e' in alto a sinistra e Y cresce verso
