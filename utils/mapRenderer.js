@@ -17,7 +17,7 @@ const MARKER_WIDTH_RATIO = 0.07;
 // --- NUOVE COSTANTI PER IL FINE-TUNING DEL MARKER ---
 // Valori negativi spostano il marker a sinistra (X) e in alto (Y).
 // Modifica questi due valori per aggiustare millimetricamente la posizione.
-const MARKER_OFFSET_X = -130; // Sposta a sinistra
+const MARKER_OFFSET_X = +20; // Sposta a sinistra
 const MARKER_OFFSET_Y = -40; // Sposta in alto
 
 // Nel gioco l'origine (0,0) e' in basso a sinistra e Y cresce verso l'alto.

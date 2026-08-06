@@ -15,5 +15,7 @@
 - in automatico a partire dal summary si potrebbe generare la mappa con le coordinate raccolte
 - Avere quindi più mappe salvate con un id. Esempio in una mappa teniamo traccia delle difese, in un altra i movimenti dei nemici
 
+# eventi
+
 # vario
 - inviare mappa con obiettivi da attaccare in canale targets e difese in canale defense

@@ -14,18 +14,15 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
   try {
-    console.log(`⏳ Registrazione di ${commands.length} comandi slash...`);
+    console.log(`⏳ Registrazione globale di ${commands.length} comandi slash...`);
 
-    // Registrazione su una singola guild: istantanea, ideale in fase di sviluppo.
-    // Per registrare i comandi globalmente su tutti i server (richiede fino a 1h
-    // di propagazione) usa Routes.applicationCommands(CLIENT_ID) invece.
-    
+    // Registrazione globale: i comandi saranno disponibili in tutti i server
     await rest.put(
-      Routes.applicationGuildCommands(process.env.CLIENT_ID, process.env.GUILD_ID),
+      Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
 
-    console.log('✅ Comandi registrati con successo.');
+    console.log('✅ Comandi globali registrati con successo. (Potrebbe volerci qualche istante per propagarsi su tutti i server).');
   } catch (err) {
     console.error('Errore durante la registrazione dei comandi:', err);
   }

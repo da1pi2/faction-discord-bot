@@ -135,20 +135,36 @@ client.once('clientReady', async () => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
+  // Gestione Comandi Slash
+  if (interaction.isChatInputCommand()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
 
-  const command = client.commands.get(interaction.commandName);
-  if (!command) return;
+    try {
+      await command.execute(interaction);
+    } catch (err) {
+      console.error(`Errore eseguendo /${interaction.commandName}:`, err);
+      const errorReply = { content: '❌ An error occurred while executing the command.', ephemeral: true };
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply(errorReply).catch(() => {});
+      } else {
+        await interaction.reply(errorReply).catch(() => {});
+      }
+    }
+  } 
+  
+  // Gestione Menu Autocomplete
+  else if (interaction.isAutocomplete()) {
+    const command = client.commands.get(interaction.commandName);
+    if (!command) return;
 
-  try {
-    await command.execute(interaction);
-  } catch (err) {
-    console.error(`Errore eseguendo /${interaction.commandName}:`, err);
-    const errorReply = { content: '❌ An error occurred while executing the command.', ephemeral: true };
-    if (interaction.deferred || interaction.replied) {
-      await interaction.editReply(errorReply).catch(() => {});
-    } else {
-      await interaction.reply(errorReply).catch(() => {});
+    try {
+      // Se il file del comando ha la funzione autocomplete, eseguila
+      if (typeof command.autocomplete === 'function') {
+        await command.autocomplete(interaction);
+      }
+    } catch (err) {
+      console.error(`Errore Autocomplete per /${interaction.commandName}:`, err);
     }
   }
 });
