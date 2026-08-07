@@ -3,7 +3,9 @@
 - data una mappa e le coordinate, crea delle linee tra le coordinate per mappare gli spostamenti
 - inserire nuovi tipi di marker: spostamento, guarnigione
   - aggiunto solo difesa, attacco, standard al momento
-- Il bot in automatico, quando legge un messaggio con una coordinata del gioco, chiede all'utente che ha mandato il messaggio se vuole creare la mappa (msg che vede solo lui) e se clicca si allora viene generata
+
+# Objectives
+- mappe differenti. esempio una mappa con diversi puntatori di attacchi, una per le difese, una che combina attacchi e difese, una per tracciare team nemici forti
 
 
 # Availability
@@ -19,3 +21,4 @@
 
 # vario
 - inviare mappa con obiettivi da attaccare in canale targets e difese in canale defense
+- generazione automatica mappa per ora rileva una sola coordinata per msg, se sembra comodo si aggiunge altro

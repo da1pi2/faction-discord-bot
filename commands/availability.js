@@ -1,4 +1,10 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { 
+  SlashCommandBuilder, 
+  EmbedBuilder, 
+  ActionRowBuilder, 
+  ButtonBuilder, 
+  ButtonStyle 
+} = require('discord.js');
 const { 
   getUserTimezone, 
   addUserAvailability, 
@@ -28,6 +34,11 @@ module.exports = {
       sub
         .setName('list')
         .setDescription('List all members with custom availability slots')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('panel')
+        .setDescription('Admin: Send a persistent button panel for members to set their availability')
     ),
 
   async execute(interaction) {
@@ -68,6 +79,31 @@ module.exports = {
       return;
     }
 
+    if (subcommand === 'panel') {
+      const row1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('avail_toggle_0_4').setLabel('00:00 - 04:00').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('avail_toggle_4_8').setLabel('04:00 - 08:00').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('avail_toggle_8_12').setLabel('08:00 - 12:00').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('avail_toggle_12_16').setLabel('12:00 - 16:00').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('avail_toggle_16_20').setLabel('16:00 - 20:00').setStyle(ButtonStyle.Primary)
+      );
+
+      const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('avail_toggle_20_0').setLabel('20:00 - 00:00').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('avail_clear').setLabel('🗑️ Clear All').setStyle(ButtonStyle.Danger)
+      );
+
+      const embed = new EmbedBuilder()
+        .setTitle('📅 Set Your Availability')
+        .setColor(0x3498db)
+        .setDescription('Click the buttons below to **toggle (add/remove)** the times you are usually available to play.\n\n*All times are relative to your **local timezone** (make sure you used `/timezone` first).*');
+
+      await interaction.reply({ content: '✅ Panel created.', ephemeral: true });
+      await interaction.channel.send({ embeds: [embed], components: [row1, row2] });
+      return;
+    }
+
+    // Per i comandi singoli (add / clear manuale)
     await interaction.deferReply({ ephemeral: true });
 
     const userTz = getUserTimezone(interaction.user.id);

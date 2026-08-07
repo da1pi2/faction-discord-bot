@@ -2,16 +2,34 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
-const { AttachmentBuilder, Client, GatewayIntentBits, Collection } = require('discord.js');
+const { 
+  AttachmentBuilder, 
+  Client, 
+  GatewayIntentBits, 
+  Collection,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle
+} = require('discord.js');
 const { syncGuildActivityRoles } = require('./utils/roleManager');
-const { logSnapshot, dbEvents, createBackup } = require('./data/db');
+const { 
+  logSnapshot, 
+  dbEvents, 
+  createBackup, 
+  getUserTimezone, 
+  clearUserAvailabilities, 
+  addUserAvailability,
+  getUserAvailabilities,
+  deleteUserAvailabilityById
+} = require('./data/db');
+const { clampCoordinate, MAX_X, MAX_Y, renderMapWithMarkers } = require('./utils/mapRenderer');
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, // necessario per leggere i ruoli dei membri
-    GatewayIntentBits.GuildMessages, // necessario per /summary (leggere cronologia canale)
-    GatewayIntentBits.MessageContent, // necessario per /summary (contenuto testuale dei messaggi)
+    GatewayIntentBits.GuildMembers, 
+    GatewayIntentBits.GuildMessages, 
+    GatewayIntentBits.MessageContent, 
   ],
 });
 
@@ -43,18 +61,15 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
       return;
     }
 
-    // 1. Trova e cancella i messaggi precedenti del bot nel canale di backup
     const messages = await channel.messages.fetch({ limit: 10 });
     const oldBackups = messages.filter(m => m.author.id === client.user.id);
     for (const [, msg] of oldBackups) {
       await msg.delete().catch(() => {});
     }
 
-    // 2. Crea il backup in locale
     const backupPath = path.join(__dirname, 'data', 'temp_backup.sqlite');
     await createBackup(backupPath);
 
-    // 3. Invia il nuovo backup
     const dateStr = new Date().toISOString().replace(/:/g, '-').split('.')[0];
     const attachment = new AttachmentBuilder(backupPath, { name: `dragonfire-db-${dateStr}.sqlite` });
     
@@ -63,7 +78,6 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
       files: [attachment] 
     });
 
-    // 4. Pulisci il file temporaneo
     if (fs.existsSync(backupPath)) {
       fs.unlinkSync(backupPath);
     }
@@ -78,27 +92,17 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
 client.once('clientReady', async () => {
   console.log(`✅ Bot connesso come ${client.user.tag}`);
 
-  // --- LISTENER PER IL BACKUP CON DEBOUNCE ---
   let backupTimeout = null;
   let latestReason = 'Automatic update on bot startup';
   
   dbEvents.on('update', (reason) => {
-    if (reason) {
-      latestReason = reason;
-    }
-    // Se ci sono stati aggiornamenti recenti, azzera il timer (evita spam)
+    if (reason) latestReason = reason;
     if (backupTimeout) clearTimeout(backupTimeout);
-    // Attende 5 secondi di inattività sul DB prima di caricare il file su Discord
     backupTimeout = setTimeout(() => {
       performDiscordBackup(latestReason);
     }, 5000); 
   });
-  // -------------------------------------------
 
-  // Fetch completo dei membri UNA SOLA VOLTA per server, in sequenza (non in
-  // parallelo) per evitare di saturare il rate limit gateway sull'opcode 8
-  // (richiesta lista membri). Dopo questo fetch iniziale, la cache resta
-  // aggiornata da sola grazie all'intent GuildMembers: non va piu rifatto.
   for (const [, guild] of client.guilds.cache) {
     try {
       await guild.members.fetch();
@@ -106,10 +110,9 @@ client.once('clientReady', async () => {
     } catch (err) {
       console.error(`Errore fetch membri su ${guild.name}:`, err);
     }
-    await sleep(1000); // piccola pausa tra un server e l'altro
+    await sleep(1000);
   }
 
-  // Sync iniziale + snapshot per ogni server in cui e presente il bot
   for (const [, guild] of client.guilds.cache) {
     try {
       const summary = await syncGuildActivityRoles(guild);
@@ -120,7 +123,6 @@ client.once('clientReady', async () => {
     }
   }
 
-  // Ogni 15 minuti: ricalcola i ruoli di stato e salva uno snapshot storico
   cron.schedule('*/15 * * * *', async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
@@ -134,7 +136,142 @@ client.once('clientReady', async () => {
   });
 });
 
+// Ascolta tutti i messaggi per rilevare coordinate
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+
+  const coordRegex = /(?:\(\s*(\d{1,4})\s*,\s*(\d{1,4})\s*\))|(?:x\s*[:=]?\s*(\d{1,4})[,\s]+y\s*[:=]?\s*(\d{1,4}))/gi;
+  let match;
+  const foundCoords = [];
+
+  while ((match = coordRegex.exec(message.content)) !== null) {
+    let x, y;
+    if (match[1] && match[2]) {
+      x = parseInt(match[1], 10);
+      y = parseInt(match[2], 10);
+    } else if (match[3] && match[4]) {
+      x = parseInt(match[3], 10);
+      y = parseInt(match[4], 10);
+    }
+
+    if (x !== undefined && y !== undefined) {
+      foundCoords.push({ x, y });
+    }
+  }
+
+  if (foundCoords.length > 0) {
+    const { x, y } = foundCoords[0]; 
+    
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`map_prompt_${message.author.id}_${x}_${y}`)
+        .setLabel(`🗺️ Genera Mappa (${x}, ${y})`)
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    const promptMsg = await message.reply({
+      content: `📍 Ho rilevato la coordinata **(${x}, ${y})**.\nVuoi visualizzarla sulla mappa? *(Questo messaggio si autodistruggerà tra 15s se ignorato)*`,
+      components: [row],
+      allowedMentions: { repliedUser: false }
+    }).catch(() => null);
+
+    if (promptMsg) {
+      setTimeout(() => {
+        promptMsg.delete().catch(() => {});
+      }, 15000);
+    }
+  }
+});
+
 client.on('interactionCreate', async (interaction) => {
+
+  // Gestione Bottoni Globali
+  if (interaction.isButton()) {
+    
+    // 1. Gestione Pannello Availability (nuovo!)
+    if (interaction.customId.startsWith('avail_toggle_') || interaction.customId === 'avail_clear') {
+      const targetUserId = interaction.user.id;
+      const userTz = getUserTimezone(targetUserId);
+
+      if (!userTz) {
+        return interaction.reply({ 
+          content: '⚠️ You need to set your timezone first using `/timezone`.', 
+          ephemeral: true 
+        });
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+
+      if (interaction.customId === 'avail_clear') {
+        clearUserAvailabilities(targetUserId);
+        await syncGuildActivityRoles(interaction.guild);
+        return interaction.editReply({ content: '✅ All your custom availability slots have been cleared.' });
+      }
+
+      const parts = interaction.customId.split('_');
+      const start = parseInt(parts[2], 10);
+      const end = parseInt(parts[3], 10);
+
+      // Verifichiamo se l'utente ha già questo slot
+      const currentSlots = getUserAvailabilities(targetUserId);
+      const existingSlot = currentSlots.find(s => s.available_start === start && s.available_end === end);
+
+      let actionText = '';
+      if (existingSlot) {
+        deleteUserAvailabilityById(existingSlot.id, targetUserId);
+        actionText = `❌ Removed slot: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00**`;
+      } else {
+        addUserAvailability(targetUserId, start, end);
+        actionText = `✅ Added slot: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00**`;
+      }
+
+      await syncGuildActivityRoles(interaction.guild);
+
+      // Riassunto slot rimanenti
+      const newSlots = getUserAvailabilities(targetUserId);
+      const slotsFormatted = newSlots.length > 0 
+        ? newSlots.map(s => `\`${String(s.available_start).padStart(2, '0')}:00 - ${String(s.available_end).padStart(2, '0')}:00\``).join(', ')
+        : 'None';
+
+      await interaction.editReply({ 
+        content: `${actionText}\nYour active slots (Local time): ${slotsFormatted}` 
+      });
+      return;
+    }
+
+    // 2. Gestione Prompt Mappa Automatica
+    if (interaction.customId.startsWith('map_prompt_')) {
+      const parts = interaction.customId.split('_');
+      const targetUserId = parts[2];
+      const xStr = parts[3];
+      const yStr = parts[4];
+
+      if (interaction.user.id !== targetUserId) {
+        return interaction.reply({ content: '❌ Questa mappa non è stata generata per te!', ephemeral: true });
+      }
+
+      await interaction.message.delete().catch(() => {});
+      await interaction.deferReply();
+
+      try {
+        const x = clampCoordinate(parseInt(xStr, 10), MAX_X);
+        const y = clampCoordinate(parseInt(yStr, 10), MAX_Y);
+
+        const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'location' }]);
+        const attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
+
+        await interaction.editReply({ 
+          files: [attachment], 
+          content: `📍 Mappa richiesta da <@${interaction.user.id}> per la coordinata **(${x}, ${y})**:` 
+        });
+      } catch (err) {
+        console.error('Errore generazione mappa automatica:', err);
+        await interaction.editReply({ content: '❌ Errore durante la generazione della mappa.' });
+      }
+      return;
+    }
+  }
+
   // Gestione Comandi Slash
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
@@ -159,7 +296,6 @@ client.on('interactionCreate', async (interaction) => {
     if (!command) return;
 
     try {
-      // Se il file del comando ha la funzione autocomplete, eseguila
       if (typeof command.autocomplete === 'function') {
         await command.autocomplete(interaction);
       }
