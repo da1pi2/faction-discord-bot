@@ -165,12 +165,12 @@ client.on('messageCreate', async (message) => {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`map_prompt_${message.author.id}_${x}_${y}`)
-        .setLabel(`🗺️ Genera Mappa (${x}, ${y})`)
+        .setLabel(`🗺️ Generate Map (${x}, ${y})`)
         .setStyle(ButtonStyle.Secondary)
     );
 
     const promptMsg = await message.reply({
-      content: `📍 Ho rilevato la coordinata **(${x}, ${y})**.\nVuoi visualizzarla sulla mappa? *(Questo messaggio si autodistruggerà tra 15s se ignorato)*`,
+      content: `📍 I have detected the coordinate **(${x}, ${y})**.\nDo you want to view it on the map? *(This message will self-destruct in 15s if ignored)*`,
       components: [row],
       allowedMentions: { repliedUser: false }
     }).catch(() => null);
@@ -247,7 +247,7 @@ client.on('interactionCreate', async (interaction) => {
       const yStr = parts[4];
 
       if (interaction.user.id !== targetUserId) {
-        return interaction.reply({ content: '❌ Questa mappa non è stata generata per te!', ephemeral: true });
+        return interaction.reply({ content: '❌ This map prompt is not for you!', ephemeral: true });
       }
 
       await interaction.message.delete().catch(() => {});
@@ -262,11 +262,11 @@ client.on('interactionCreate', async (interaction) => {
 
         await interaction.editReply({ 
           files: [attachment], 
-          content: `📍 Mappa richiesta da <@${interaction.user.id}> per la coordinata **(${x}, ${y})**:` 
+          content: `📍 Map requested by <@${interaction.user.id}> for coordinate **(${x}, ${y})**:` 
         });
       } catch (err) {
-        console.error('Errore generazione mappa automatica:', err);
-        await interaction.editReply({ content: '❌ Errore durante la generazione della mappa.' });
+        console.error('Error generating automatic map:', err);
+        await interaction.editReply({ content: '❌ Error occurred while generating the map.' });
       }
       return;
     }
