@@ -241,6 +241,22 @@ client.on('interactionCreate', async (interaction) => {
 
       const updatePayload = { embeds: [updatedEmbed] };
 
+      // Se l'evento ha una mappa, la rigeneriamo
+      if (ev.x !== null && ev.y !== null && ev.x !== undefined && ev.y !== undefined) {
+        try {
+          const x = clampCoordinate(ev.x, MAX_X);
+          const y = clampCoordinate(ev.y, MAX_Y);
+          const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'attack' }]);
+          const attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
+          
+          updatedEmbed.setImage('attachment://map.png');
+          updatePayload.files = [attachment];
+          updatePayload.attachments = [];
+        } catch (err) {
+          console.error('Error re-rendering map for RSVP button:', err);
+        }
+      }
+
       // 2. Usiamo editReply al posto di update perché abbiamo deferrito l'interazione
       await interaction.editReply(updatePayload);
       return;
