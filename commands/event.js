@@ -4,7 +4,6 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  ComponentType,
   AttachmentBuilder
 } = require('discord.js');
 const { toUnixTimestamp } = require('../utils/timeUtils');
@@ -12,7 +11,7 @@ const { getGuildMembersTimezones } = require('../utils/roleManager');
 const { computeAvailability } = require('./when');
 const { parseCoordinatePair, clampCoordinate, MAX_X, MAX_Y, renderMapWithMarkers } = require('../utils/mapRenderer');
 
-const activeEvents = new Map();
+const eventTimers = new Map();
 
 function parseTimeToday(timeStr) {
   const match = /^([0-2]?\d):([0-5]\d)$/.exec(timeStr.trim());
@@ -40,6 +39,47 @@ async function buildAvailabilityString(guild, targetDate) {
   const membersData = await getGuildMembersTimezones(guild);
   const { byStatus, scorePercent } = computeAvailability(membersData, utcHour);
   return `✅ ${byStatus.available} | ☀️ ${byStatus.day} | 🌙 ${byStatus.night} — Score: **${scorePercent}%**`;
+}
+
+function scheduleEventTimers(client, eventRow) {
+  if (eventTimers.has(eventRow.id)) {
+    const existing = eventTimers.get(eventRow.id);
+    if (existing.reminder) clearTimeout(existing.reminder);
+    if (existing.start) clearTimeout(existing.start);
+  }
+
+  const targetDate = new Date(eventRow.target_date);
+  const msUntilEvent = targetDate.getTime() - Date.now();
+  const msUntilReminder = msUntilEvent - 30 * 60 * 1000;
+  const eventId = eventRow.id;
+
+  const timers = { reminder: null, start: null };
+
+  if (msUntilReminder > 0) {
+    timers.reminder = setTimeout(async () => {
+      try {
+        const channel = await client.channels.fetch(eventRow.channel_id);
+        if (channel) channel.send(`🐉 **${eventRow.name}** starts in 30 minutes!`).catch(console.error);
+      } catch(e) { console.error('Error in reminder timer:', e); }
+    }, msUntilReminder);
+  }
+
+  timers.start = setTimeout(async () => {
+    try {
+      const channel = await client.channels.fetch(eventRow.channel_id);
+      if (channel) {
+        const { getEventRsvps, deleteEvent } = require('../data/db');
+        const rsvps = getEventRsvps(eventId);
+        const yesIds = rsvps.filter(r => r.status === 'yes').map(r => `<@${r.user_id}>`);
+        const mentions = yesIds.length > 0 ? yesIds.join(' ') : '';
+        channel.send(`🐉 **${eventRow.name} started!**\n${mentions}`).catch(console.error);
+        deleteEvent(eventId);
+      }
+      eventTimers.delete(eventId);
+    } catch(e) { console.error('Error in start timer:', e); }
+  }, Math.max(msUntilEvent, 0));
+
+  eventTimers.set(eventId, timers);
 }
 
 module.exports = {
@@ -95,23 +135,25 @@ module.exports = {
         .addStringOption((opt) => opt.setName('id').setDescription('Select the event to remove').setRequired(true).setAutocomplete(true))
     ),
 
+  scheduleEventTimers,
+
   async autocomplete(interaction) {
     const focusedValue = interaction.options.getFocused().toLowerCase();
-    const choices = [];
+    const { getAllEvents } = require('../data/db');
+    const events = getAllEvents();
     
-    for (const [id, ev] of activeEvents.entries()) {
-      choices.push({ name: `${ev.name} (ID: ${id})`, value: id });
-    }
-
+    const choices = events.map(ev => ({ name: `${ev.name} (ID: ${ev.id})`, value: ev.id }));
     const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedValue));
     await interaction.respond(filtered.slice(0, 25));
   },
 
   async execute(interaction) {
     const subcommand = interaction.options.getSubcommand();
+    const { getEvent, getAllEvents, deleteEvent, updateEventDetails, addEvent } = require('../data/db');
 
     if (subcommand === 'list') {
-      if (activeEvents.size === 0) {
+      const events = getAllEvents();
+      if (events.length === 0) {
         return interaction.reply({ content: '⚠️ No scheduled events at the moment.', ephemeral: true });
       }
 
@@ -120,8 +162,8 @@ module.exports = {
         .setColor(0x3498db);
 
       const lines = [];
-      for (const [id, ev] of activeEvents.entries()) {
-        lines.push(`**${ev.name}** (ID: \`${id}\`) — <t:${toUnixTimestamp(ev.targetDate)}:f>`);
+      for (const ev of events) {
+        lines.push(`**${ev.name}** (ID: \`${ev.id}\`) — <t:${toUnixTimestamp(new Date(ev.target_date))}:f>`);
       }
       
       embed.setDescription(lines.join('\n'));
@@ -130,27 +172,38 @@ module.exports = {
 
     if (subcommand === 'remove') {
       const eventId = interaction.options.getString('id').toUpperCase();
-      const ev = activeEvents.get(eventId);
+      const ev = getEvent(eventId);
 
       if (!ev) {
         return interaction.reply({ content: `❌ Event not found. It might have already ended or been cancelled.`, ephemeral: true });
       }
 
-      ev.timers.forEach((t) => clearTimeout(t));
-      if (ev.collector) ev.collector.stop();
-      activeEvents.delete(eventId);
+      if (eventTimers.has(eventId)) {
+        const timers = eventTimers.get(eventId);
+        if (timers.reminder) clearTimeout(timers.reminder);
+        if (timers.start) clearTimeout(timers.start);
+        eventTimers.delete(eventId);
+      }
 
-      if (ev.message) {
-        const disabledRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId('rsvp_yes').setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(true),
-          new ButtonBuilder().setCustomId('rsvp_no').setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌').setDisabled(true)
-        );
+      deleteEvent(eventId);
 
-        const cancelledEmbed = EmbedBuilder.from(ev.message.embeds[0])
-          .setTitle(`🚫 CANCELLED: ${ev.name}`)
-          .setColor(0xe74c3c);
+      if (ev.channel_id && ev.message_id) {
+        try {
+          const channel = await interaction.client.channels.fetch(ev.channel_id);
+          const message = await channel.messages.fetch(ev.message_id);
+          if (message) {
+            const disabledRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`rsvp_yes_${eventId}`).setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(true),
+              new ButtonBuilder().setCustomId(`rsvp_no_${eventId}`).setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌').setDisabled(true)
+            );
 
-        await ev.message.edit({ embeds: [cancelledEmbed], components: [disabledRow] }).catch(() => {});
+            const cancelledEmbed = EmbedBuilder.from(message.embeds[0])
+              .setTitle(`🚫 CANCELLED: ${ev.name}`)
+              .setColor(0xe74c3c);
+
+            await message.edit({ embeds: [cancelledEmbed], components: [disabledRow], attachments: [] }).catch(() => {});
+          }
+        } catch(e) {}
       }
 
       return interaction.reply({ content: `✅ Event **${ev.name}** has been cancelled.`, ephemeral: true });
@@ -165,7 +218,7 @@ module.exports = {
       const rawX = parsedCoordinates?.x ?? interaction.options.getInteger('x');
       const rawY = parsedCoordinates?.y ?? interaction.options.getInteger('y');
 
-      const ev = activeEvents.get(eventId);
+      const ev = getEvent(eventId);
 
       if (!ev) {
         return interaction.reply({ content: `❌ Event not found. It might have already ended or been cancelled.`, ephemeral: true });
@@ -182,34 +235,9 @@ module.exports = {
 
       await interaction.deferReply({ ephemeral: true });
 
-      ev.targetDate = targetDate;
-      const unixSec = toUnixTimestamp(targetDate);
-      const utcTimeString = `${String(targetDate.getUTCHours()).padStart(2, '0')}:${String(targetDate.getUTCMinutes()).padStart(2, '0')} UTC`;
-      
-      ev.timers.forEach(t => clearTimeout(t));
-      ev.timers = [];
-      
-      const msUntilEvent = targetDate.getTime() - Date.now();
-      const msUntilReminder = msUntilEvent - 30 * 60 * 1000;
-      const channel = ev.message.channel;
-
-      if (msUntilReminder > 0) {
-        const reminderTimer = setTimeout(() => {
-          if (!activeEvents.has(eventId)) return;
-          channel.send(`🐉 **${ev.name}** starts in 30 minutes!`).catch(console.error);
-        }, msUntilReminder);
-        ev.timers.push(reminderTimer);
-      }
-
-      const startTimer = setTimeout(() => {
-        if (!activeEvents.has(eventId)) return;
-        const mentions = ev.yes.size > 0 ? Array.from(ev.yes).map(id => `<@${id}>`).join(' ') : '';
-        channel.send(`🐉 **${ev.name} started!**\n${mentions}`).catch(console.error);
-        if (ev.collector) ev.collector.stop();
-        activeEvents.delete(eventId);
-      }, Math.max(msUntilEvent, 0));
-      
-      ev.timers.push(startTimer);
+      const newDateStr = targetDate.toISOString();
+      updateEventDetails(eventId, newDateStr, rawX, rawY);
+      scheduleEventTimers(interaction.client, { ...ev, target_date: newDateStr });
 
       let attachment;
       if (rawX !== null && rawY !== null) {
@@ -218,38 +246,45 @@ module.exports = {
           const y = clampCoordinate(rawY, MAX_Y);
           const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'attack' }]);
           
-          // Chiamato map.png per forzare Discord a nasconderlo come file standalone
           attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
         } catch (error) {
           console.error('Error generating map image for edit:', error);
         }
       }
 
-      const oldEmbed = EmbedBuilder.from(ev.message.embeds[0]);
-      const yesField = oldEmbed.data.fields.find(f => f.name.startsWith('✅')) || { name: '✅ Available (0)', value: 'None yet', inline: true };
-      const noField = oldEmbed.data.fields.find(f => f.name.startsWith('❌')) || { name: '❌ Unavailable (0)', value: 'None yet', inline: true };
-      
-      const availString = await buildAvailabilityString(interaction.guild, targetDate);
+      try {
+        const channel = await interaction.client.channels.fetch(ev.channel_id);
+        const message = await channel.messages.fetch(ev.message_id);
+        
+        const oldEmbed = EmbedBuilder.from(message.embeds[0]);
+        const yesField = oldEmbed.data.fields.find(f => f.name.startsWith('✅')) || { name: '✅ Available (0)', value: 'None yet', inline: true };
+        const noField = oldEmbed.data.fields.find(f => f.name.startsWith('❌')) || { name: '❌ Unavailable (0)', value: 'None yet', inline: true };
+        
+        const availString = await buildAvailabilityString(interaction.guild, targetDate);
+        const unixSec = toUnixTimestamp(targetDate);
+        const utcTimeString = `${String(targetDate.getUTCHours()).padStart(2, '0')}:${String(targetDate.getUTCMinutes()).padStart(2, '0')} UTC`;
 
-      oldEmbed.setFields(
-        { name: 'Time (Local)', value: `<t:${unixSec}:F>`, inline: false },
-        { name: 'Time (UTC)', value: `**${utcTimeString}**`, inline: true },
-        { name: 'Starts In', value: `<t:${unixSec}:R>`, inline: true },
-        { name: 'Event ID', value: `\`${eventId}\``, inline: true },
-        { name: '📊 Theoretical Availability', value: availString, inline: false },
-        yesField,
-        noField
-      );
+        oldEmbed.setFields(
+          { name: 'Time (Local)', value: `<t:${unixSec}:F>`, inline: false },
+          { name: 'Time (UTC)', value: `**${utcTimeString}**`, inline: true },
+          { name: 'Starts In', value: `<t:${unixSec}:R>`, inline: true },
+          { name: 'Event ID', value: `\`${eventId}\``, inline: true },
+          { name: '📊 Theoretical Availability', value: availString, inline: false },
+          yesField,
+          noField
+        );
 
-      const messagePayload = { embeds: [oldEmbed] };
+        const messagePayload = { embeds: [oldEmbed], attachments: [] };
 
-      if (attachment) {
-        oldEmbed.setImage('attachment://map.png');
-        messagePayload.files = [attachment];
-        messagePayload.attachments = []; 
+        if (attachment) {
+          oldEmbed.setImage('attachment://map.png');
+          messagePayload.files = [attachment];
+        }
+
+        await message.edit(messagePayload);
+      } catch (e) {
+        console.error('Could not edit original message:', e);
       }
-
-      await ev.message.edit(messagePayload);
       return interaction.editReply({ content: `✅ Event **${ev.name}** updated successfully.` });
     }
 
@@ -275,9 +310,6 @@ module.exports = {
       await interaction.deferReply();
 
       const unixSec = toUnixTimestamp(targetDate);
-      const msUntilEvent = targetDate.getTime() - Date.now();
-      const msUntilReminder = msUntilEvent - 30 * 60 * 1000;
-      
       const eventId = generateId();
       const utcTimeString = `${String(targetDate.getUTCHours()).padStart(2, '0')}:${String(targetDate.getUTCMinutes()).padStart(2, '0')} UTC`;
       const availString = await buildAvailabilityString(interaction.guild, targetDate);
@@ -289,7 +321,6 @@ module.exports = {
           const y = clampCoordinate(rawY, MAX_Y);
           const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'attack' }]);
           
-          // Chiamato map.png per forzare Discord a nasconderlo come file standalone
           attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
         } catch (error) {
           console.error('Error generating map image:', error);
@@ -308,7 +339,6 @@ module.exports = {
         );
         
       if (description) embed.setDescription(description);
-      if (attachment) embed.setImage('attachment://map.png');
 
       embed.addFields(
         { name: '✅ Available (0)', value: 'None yet', inline: true },
@@ -316,92 +346,38 @@ module.exports = {
       );
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('rsvp_yes').setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅'),
-        new ButtonBuilder().setCustomId('rsvp_no').setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌')
+        new ButtonBuilder().setCustomId(`rsvp_yes_${eventId}`).setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅'),
+        new ButtonBuilder().setCustomId(`rsvp_no_${eventId}`).setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌')
       );
 
-      const payload = { embeds: [embed], components: [row] };
-      if (attachment) payload.files = [attachment];
+      const payload = { 
+        content: '@everyone\n🆕 **New Event Created!**',
+        embeds: [embed], 
+        components: [row],
+        allowedMentions: { parse: ['everyone'] },
+        attachments: []
+      };
+      
+      if (attachment) {
+        embed.setImage('attachment://map.png');
+        payload.files = [attachment];
+      }
 
       const response = await interaction.editReply(payload);
 
-      const eventData = {
+      const eventRow = {
+        id: eventId,
         name,
-        targetDate,
-        message: response,
-        yes: new Set(),
-        no: new Set(),
-        timers: [],
-        collector: null
+        target_date: targetDate.toISOString(),
+        description: description || '',
+        x: rawX,
+        y: rawY,
+        channel_id: interaction.channelId,
+        message_id: response.id
       };
-      activeEvents.set(eventId, eventData);
-
-      const collector = response.createMessageComponentCollector({ 
-        componentType: ComponentType.Button 
-      });
-      eventData.collector = collector;
-
-      collector.on('collect', async (i) => {
-        if (!activeEvents.has(eventId)) {
-          return i.reply({ content: '⚠️ This event has been cancelled or already ended.', ephemeral: true });
-        }
-
-        if (i.customId === 'rsvp_yes') {
-          eventData.yes.add(i.user.id);
-          eventData.no.delete(i.user.id);
-        } else if (i.customId === 'rsvp_no') {
-          eventData.no.add(i.user.id);
-          eventData.yes.delete(i.user.id);
-        }
-
-        const updatedEmbed = EmbedBuilder.from(i.message.embeds[0]);
-        const yesIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('✅'));
-        const noIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('❌'));
-
-        updatedEmbed.data.fields[yesIndex].name = `✅ Available (${eventData.yes.size})`;
-        updatedEmbed.data.fields[yesIndex].value = eventData.yes.size > 0 
-          ? Array.from(eventData.yes).map(id => `<@${id}>`).join('\n') 
-          : 'None yet';
-
-        updatedEmbed.data.fields[noIndex].name = `❌ Unavailable (${eventData.no.size})`;
-        updatedEmbed.data.fields[noIndex].value = eventData.no.size > 0 
-          ? Array.from(eventData.no).map(id => `<@${id}>`).join('\n') 
-          : 'None yet';
-
-        await i.update({ embeds: [updatedEmbed] });
-      });
-
-      collector.on('end', () => {
-        if (activeEvents.has(eventId)) {
-          row.components.forEach(c => c.setDisabled(true));
-          response.edit({ components: [row] }).catch(() => {});
-        }
-      });
-
-      const channel = interaction.channel;
-
-      if (msUntilReminder > 0) {
-        const reminderTimer = setTimeout(() => {
-          if (!activeEvents.has(eventId)) return;
-          channel.send(`🐉 **${name}** starts in 30 minutes!`).catch(console.error);
-        }, msUntilReminder);
-        eventData.timers.push(reminderTimer);
-      }
-
-      const startTimer = setTimeout(() => {
-        if (!activeEvents.has(eventId)) return;
-        
-        const mentions = eventData.yes.size > 0 
-          ? Array.from(eventData.yes).map(id => `<@${id}>`).join(' ') 
-          : '';
-          
-        channel.send(`🐉 **${name} started!**\n${mentions}`).catch(console.error);
-        
-        if (eventData.collector) eventData.collector.stop();
-        activeEvents.delete(eventId);
-      }, Math.max(msUntilEvent, 0));
       
-      eventData.timers.push(startTimer);
+      addEvent(eventRow);
+      scheduleEventTimers(interaction.client, eventRow);
     }
   },
 };

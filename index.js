@@ -9,7 +9,8 @@ const {
   Collection,
   ActionRowBuilder,
   ButtonBuilder,
-  ButtonStyle
+  ButtonStyle,
+  EmbedBuilder
 } = require('discord.js');
 const { syncGuildActivityRoles } = require('./utils/roleManager');
 const { 
@@ -20,9 +21,15 @@ const {
   clearUserAvailabilities, 
   addUserAvailability,
   getUserAvailabilities,
-  deleteUserAvailabilityById
+  deleteUserAvailabilityById,
+  getAllEvents,
+  getEventRsvps,
+  deleteEvent,
+  getEvent,
+  setEventRsvp
 } = require('./data/db');
 const { clampCoordinate, MAX_X, MAX_Y, renderMapWithMarkers } = require('./utils/mapRenderer');
+const { scheduleEventTimers } = require('./commands/event');
 
 const client = new Client({
   intents: [
@@ -91,6 +98,16 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
 
 client.once('clientReady', async () => {
   console.log(`✅ Bot connesso come ${client.user.tag}`);
+
+  const activeEvents = getAllEvents();
+  for (const ev of activeEvents) {
+    const targetDate = new Date(ev.target_date);
+    if (targetDate.getTime() <= Date.now()) {
+      deleteEvent(ev.id);
+    } else {
+      scheduleEventTimers(client, ev);
+    }
+  }
 
   let backupTimeout = null;
   let latestReason = 'Automatic update on bot startup';
@@ -189,6 +206,62 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     
     // 1. Gestione Pannello Availability (nuovo!)
+   if (interaction.customId.startsWith('rsvp_yes_') || interaction.customId.startsWith('rsvp_no_')) {
+      // 1. Rispondi SUBITO a Discord per evitare il timeout dei 3 secondi
+      await interaction.deferUpdate();
+
+      const parts = interaction.customId.split('_');
+      const action = parts[1]; // 'yes' o 'no'
+      const eventId = parts[2];
+      
+      const ev = getEvent(eventId);
+      
+      if (!ev) {
+        return interaction.followUp({ content: '⚠️ This event has been cancelled or already ended.', ephemeral: true });
+      }
+
+      setEventRsvp(eventId, interaction.user.id, action);
+      
+      const rsvps = getEventRsvps(eventId);
+      const yesSet = rsvps.filter(r => r.status === 'yes').map(r => r.user_id);
+      const noSet = rsvps.filter(r => r.status === 'no').map(r => r.user_id);
+
+      const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
+      const yesIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('✅'));
+      const noIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('❌'));
+
+      if (yesIndex !== -1) {
+        updatedEmbed.data.fields[yesIndex].name = `✅ Available (${yesSet.length})`;
+        updatedEmbed.data.fields[yesIndex].value = yesSet.length > 0 ? yesSet.map(id => `<@${id}>`).join('\n') : 'None yet';
+      }
+      if (noIndex !== -1) {
+        updatedEmbed.data.fields[noIndex].name = `❌ Unavailable (${noSet.length})`;
+        updatedEmbed.data.fields[noIndex].value = noSet.length > 0 ? noSet.map(id => `<@${id}>`).join('\n') : 'None yet';
+      }
+
+      const updatePayload = { embeds: [updatedEmbed] };
+
+      // Se l'evento ha una mappa, la rigeneriamo
+      if (ev.x !== null && ev.y !== null && ev.x !== undefined && ev.y !== undefined) {
+        try {
+          const x = clampCoordinate(ev.x, MAX_X);
+          const y = clampCoordinate(ev.y, MAX_Y);
+          const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'attack' }]);
+          const attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
+          
+          updatedEmbed.setImage('attachment://map.png');
+          updatePayload.files = [attachment];
+          updatePayload.attachments = [];
+        } catch (err) {
+          console.error('Error re-rendering map for RSVP button:', err);
+        }
+      }
+
+      // 2. Usiamo editReply al posto di update perché abbiamo deferrito l'interazione
+      await interaction.editReply(updatePayload);
+      return;
+    }
+
     if (interaction.customId.startsWith('avail_toggle_') || interaction.customId === 'avail_clear') {
       const targetUserId = interaction.user.id;
       const userTz = getUserTimezone(targetUserId);

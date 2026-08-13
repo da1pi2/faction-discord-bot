@@ -36,6 +36,24 @@ db.exec(`
     available_start INTEGER NOT NULL,
     available_end INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS active_events (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    target_date TEXT NOT NULL,
+    description TEXT,
+    x INTEGER,
+    y INTEGER,
+    channel_id TEXT,
+    message_id TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS event_rsvps (
+    event_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    PRIMARY KEY (event_id, user_id)
+  );
 `);
 
 // Migrazioni automatiche sicure: aggiunge le colonne ai DB esistenti.
@@ -191,6 +209,42 @@ function getAllAvailabilities() {
   `).all();
 }
 
+function addEvent(ev) {
+  db.prepare(`
+    INSERT INTO active_events (id, name, target_date, description, x, y, channel_id, message_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(ev.id, ev.name, ev.target_date, ev.description || null, ev.x ?? null, ev.y ?? null, ev.channel_id, ev.message_id);
+}
+
+function updateEventDetails(id, targetDate, x, y) {
+  db.prepare(`UPDATE active_events SET target_date = ?, x = ?, y = ? WHERE id = ?`).run(targetDate, x ?? null, y ?? null, id);
+}
+
+function deleteEvent(id) {
+  db.prepare('DELETE FROM active_events WHERE id = ?').run(id);
+  db.prepare('DELETE FROM event_rsvps WHERE event_id = ?').run(id);
+}
+
+function getEvent(id) {
+  return db.prepare('SELECT * FROM active_events WHERE id = ?').get(id);
+}
+
+function getAllEvents() {
+  return db.prepare('SELECT * FROM active_events').all();
+}
+
+function setEventRsvp(eventId, userId, status) {
+  db.prepare(`
+    INSERT INTO event_rsvps (event_id, user_id, status)
+    VALUES (?, ?, ?)
+    ON CONFLICT(event_id, user_id) DO UPDATE SET status = excluded.status
+  `).run(eventId, userId, status);
+}
+
+function getEventRsvps(eventId) {
+  return db.prepare('SELECT user_id, status FROM event_rsvps WHERE event_id = ?').all(eventId);
+}
+
 module.exports = {
   db,
   dbEvents,
@@ -212,4 +266,11 @@ module.exports = {
   addUserAvailability,
   clearUserAvailabilities,
   deleteUserAvailabilityById,
+  addEvent,
+  updateEventDetails,
+  deleteEvent,
+  getEvent,
+  getAllEvents,
+  setEventRsvp,
+  getEventRsvps,
 };
