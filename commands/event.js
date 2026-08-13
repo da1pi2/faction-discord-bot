@@ -44,35 +44,63 @@ async function buildAvailabilityString(guild, targetDate) {
 function scheduleEventTimers(client, eventRow) {
   if (eventTimers.has(eventRow.id)) {
     const existing = eventTimers.get(eventRow.id);
-    if (existing.reminder) clearTimeout(existing.reminder);
+    if (existing.oneHour) clearTimeout(existing.oneHour);
+    if (existing.fiveMin) clearTimeout(existing.fiveMin);
     if (existing.start) clearTimeout(existing.start);
   }
 
   const targetDate = new Date(eventRow.target_date);
   const msUntilEvent = targetDate.getTime() - Date.now();
-  const msUntilReminder = msUntilEvent - 30 * 60 * 1000;
+  
+  // Calcolo dei millisecondi per 1 ora e 5 minuti prima
+  const msUntilOneHour = msUntilEvent - 60 * 60 * 1000;
+  const msUntilFiveMin = msUntilEvent - 5 * 60 * 1000;
   const eventId = eventRow.id;
 
-  const timers = { reminder: null, start: null };
+  const timers = { oneHour: null, fiveMin: null, start: null };
 
-  if (msUntilReminder > 0) {
-    timers.reminder = setTimeout(async () => {
+  // Funzione helper per recuperare chi ha cliccato "Available" nel momento esatto del timer
+  const getMentions = () => {
+    const { getEventRsvps } = require('../data/db');
+    const rsvps = getEventRsvps(eventId);
+    const yesIds = rsvps.filter(r => r.status === 'yes').map(r => `<@${r.user_id}>`);
+    return yesIds.length > 0 ? yesIds.join(' ') : '';
+  };
+
+  // Timer 1 Ora
+  if (msUntilOneHour > 0) {
+    timers.oneHour = setTimeout(async () => {
       try {
         const channel = await client.channels.fetch(eventRow.channel_id);
-        if (channel) channel.send(`🐉 **${eventRow.name}** starts in 30 minutes!`).catch(console.error);
-      } catch(e) { console.error('Error in reminder timer:', e); }
-    }, msUntilReminder);
+        if (channel) {
+          const mentions = getMentions();
+          channel.send(`🐉 **${eventRow.name}** starts in 1 hour!\n${mentions}`).catch(console.error);
+        }
+      } catch(e) { console.error('Error in 1h reminder timer:', e); }
+    }, msUntilOneHour);
   }
 
+  // Timer 5 Minuti
+  if (msUntilFiveMin > 0) {
+    timers.fiveMin = setTimeout(async () => {
+      try {
+        const channel = await client.channels.fetch(eventRow.channel_id);
+        if (channel) {
+          const mentions = getMentions();
+          channel.send(`🐉 **${eventRow.name}** starts in 5 minutes!\n${mentions}`).catch(console.error);
+        }
+      } catch(e) { console.error('Error in 5m reminder timer:', e); }
+    }, msUntilFiveMin);
+  }
+
+  // Timer di Start (nessun ping)
   timers.start = setTimeout(async () => {
     try {
       const channel = await client.channels.fetch(eventRow.channel_id);
       if (channel) {
-        const { getEventRsvps, deleteEvent } = require('../data/db');
-        const rsvps = getEventRsvps(eventId);
-        const yesIds = rsvps.filter(r => r.status === 'yes').map(r => `<@${r.user_id}>`);
-        const mentions = yesIds.length > 0 ? yesIds.join(' ') : '';
-        channel.send(`🐉 **${eventRow.name} started!**\n${mentions}`).catch(console.error);
+        const { deleteEvent } = require('../data/db');
+        // Nessun tag qui, avvisa solo dell'inizio
+        channel.send(`🐉 **${eventRow.name} started!**`).catch(console.error);
         deleteEvent(eventId);
       }
       eventTimers.delete(eventId);
@@ -180,7 +208,8 @@ module.exports = {
 
       if (eventTimers.has(eventId)) {
         const timers = eventTimers.get(eventId);
-        if (timers.reminder) clearTimeout(timers.reminder);
+        if (timers.oneHour) clearTimeout(timers.oneHour);
+        if (timers.fiveMin) clearTimeout(timers.fiveMin);
         if (timers.start) clearTimeout(timers.start);
         eventTimers.delete(eventId);
       }
