@@ -11,9 +11,8 @@ db.exec(`
     timestamp TEXT NOT NULL,
     utc_hour REAL NOT NULL,
     day_count INTEGER NOT NULL,
-    peak_count INTEGER NOT NULL,
     night_count INTEGER NOT NULL,
-    region_json TEXT NOT NULL
+    available_count INTEGER DEFAULT 0
   );
 
   CREATE TABLE IF NOT EXISTS map_objectives (
@@ -56,10 +55,9 @@ db.exec(`
   );
 `);
 
-// Migrazioni automatiche sicure: aggiunge le colonne ai DB esistenti.
+// Mantieni solo queste due migrazioni per sicurezza sui vecchi DB
 try { db.prepare('ALTER TABLE user_timezones ADD COLUMN available_start INTEGER').run(); } catch(e) {}
 try { db.prepare('ALTER TABLE user_timezones ADD COLUMN available_end INTEGER').run(); } catch(e) {}
-try { db.prepare('ALTER TABLE activity_log ADD COLUMN available_count INTEGER DEFAULT 0').run(); } catch(e) {}
 
 function setUserTimezone(userId, offset) {
   db.prepare(`
@@ -81,16 +79,15 @@ function setUserAvailability(userId, start, end) {
 
 // Ora restituisce l'oggetto completo
 function getUserTimezone(userId) {
-  const row = db.prepare('SELECT utc_offset, available_start, available_end FROM user_timezones WHERE user_id = ?').get(userId);
+  const row = db.prepare('SELECT utc_offset FROM user_timezones WHERE user_id = ?').get(userId);
   return row || null;
 }
 
 function getAllTimezones() {
-  return db.prepare('SELECT user_id, utc_offset, available_start, available_end FROM user_timezones').all();
+  return db.prepare('SELECT user_id, utc_offset FROM user_timezones').all();
 }
 
 function logSnapshot(summary) {
-  // Calcola la data limite in formato ISO identico a quello salvato nel DB
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   db.prepare('DELETE FROM activity_log WHERE timestamp < ?').run(cutoff);
 
@@ -98,23 +95,23 @@ function logSnapshot(summary) {
     INSERT INTO activity_log (timestamp, utc_hour, day_count, peak_count, night_count, available_count, region_json)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
+  
   stmt.run(
     new Date().toISOString(),
     summary.utcHour,
     summary.byStatus.day || 0,
-    summary.byStatus.peak || 0,
+    0, // <-- Fornisce 0 per soddisfare il vincolo NOT NULL legacy
     summary.byStatus.night || 0,
     summary.byStatus.available || 0,
-    '{}'
+    '{}' // <-- Fornisce stringa vuota per region_json
   );
-  dbEvents.emit('update', 'Automatic activity snapshot (15 min sync)');
 }
 
 function getHistoricalAverageByHour() {
   const rows = db
     .prepare(
       `SELECT CAST(utc_hour AS INTEGER) AS hour_bucket,
-              AVG(day_count + peak_count + COALESCE(available_count, 0)) AS avg_active,
+              AVG(day_count + COALESCE(available_count, 0)) AS avg_active,
               COUNT(*) AS samples
        FROM activity_log
        GROUP BY hour_bucket

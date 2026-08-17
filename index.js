@@ -109,16 +109,16 @@ client.once('clientReady', async () => {
     }
   }
 
-  let backupTimeout = null;
-  let latestReason = 'Automatic update on bot startup';
+  // let backupTimeout = null;
+  // let latestReason = 'Automatic update on bot startup';
   
-  dbEvents.on('update', (reason) => {
-    if (reason) latestReason = reason;
-    if (backupTimeout) clearTimeout(backupTimeout);
-    backupTimeout = setTimeout(() => {
-      performDiscordBackup(latestReason);
-    }, 5000); 
-  });
+  // dbEvents.on('update', (reason) => {
+  //   if (reason) latestReason = reason;
+  //   if (backupTimeout) clearTimeout(backupTimeout);
+  //   backupTimeout = setTimeout(() => {
+  //     performDiscordBackup(latestReason);
+  //   }, 5000); 
+  // });
 
   for (const [, guild] of client.guilds.cache) {
     try {
@@ -150,6 +150,11 @@ client.once('clientReady', async () => {
         console.error(`Errore durante il sync periodico su ${guild.name}:`, err);
       }
     }
+  });
+
+  // Esegue il backup su Discord ogni 6 ore
+  cron.schedule('0 */3 * * *', async () => {
+    await performDiscordBackup('Backup programmato ogni 3 ore');
   });
 });
 
@@ -207,7 +212,6 @@ client.on('interactionCreate', async (interaction) => {
     
     // 1. Gestione Pannello Availability (nuovo!)
    if (interaction.customId.startsWith('rsvp_yes_') || interaction.customId.startsWith('rsvp_no_')) {
-      // 1. Rispondi SUBITO a Discord per evitare il timeout dei 3 secondi
       await interaction.deferUpdate();
 
       const parts = interaction.customId.split('_');
@@ -239,76 +243,8 @@ client.on('interactionCreate', async (interaction) => {
         updatedEmbed.data.fields[noIndex].value = noSet.length > 0 ? noSet.map(id => `<@${id}>`).join('\n') : 'None yet';
       }
 
-      const updatePayload = { embeds: [updatedEmbed] };
-
-      // Se l'evento ha una mappa, la rigeneriamo
-      if (ev.x !== null && ev.y !== null && ev.x !== undefined && ev.y !== undefined) {
-        try {
-          const x = clampCoordinate(ev.x, MAX_X);
-          const y = clampCoordinate(ev.y, MAX_Y);
-          const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'attack' }]);
-          const attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
-          
-          updatedEmbed.setImage('attachment://map.png');
-          updatePayload.files = [attachment];
-          updatePayload.attachments = [];
-        } catch (err) {
-          console.error('Error re-rendering map for RSVP button:', err);
-        }
-      }
-
-      // 2. Usiamo editReply al posto di update perché abbiamo deferrito l'interazione
-      await interaction.editReply(updatePayload);
-      return;
-    }
-
-    if (interaction.customId.startsWith('avail_toggle_') || interaction.customId === 'avail_clear') {
-      const targetUserId = interaction.user.id;
-      const userTz = getUserTimezone(targetUserId);
-
-      if (!userTz) {
-        return interaction.reply({ 
-          content: '⚠️ You need to set your timezone first using `/timezone`.', 
-          ephemeral: true 
-        });
-      }
-
-      await interaction.deferReply({ ephemeral: true });
-
-      if (interaction.customId === 'avail_clear') {
-        clearUserAvailabilities(targetUserId);
-        await syncGuildActivityRoles(interaction.guild);
-        return interaction.editReply({ content: '✅ All your custom availability slots have been cleared.' });
-      }
-
-      const parts = interaction.customId.split('_');
-      const start = parseInt(parts[2], 10);
-      const end = parseInt(parts[3], 10);
-
-      // Verifichiamo se l'utente ha già questo slot
-      const currentSlots = getUserAvailabilities(targetUserId);
-      const existingSlot = currentSlots.find(s => s.available_start === start && s.available_end === end);
-
-      let actionText = '';
-      if (existingSlot) {
-        deleteUserAvailabilityById(existingSlot.id, targetUserId);
-        actionText = `❌ Removed slot: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00**`;
-      } else {
-        addUserAvailability(targetUserId, start, end);
-        actionText = `✅ Added slot: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00**`;
-      }
-
-      await syncGuildActivityRoles(interaction.guild);
-
-      // Riassunto slot rimanenti
-      const newSlots = getUserAvailabilities(targetUserId);
-      const slotsFormatted = newSlots.length > 0 
-        ? newSlots.map(s => `\`${String(s.available_start).padStart(2, '0')}:00 - ${String(s.available_end).padStart(2, '0')}:00\``).join(', ')
-        : 'None';
-
-      await interaction.editReply({ 
-        content: `${actionText}\nYour active slots (Local time): ${slotsFormatted}` 
-      });
+      // Aggiorna solo i campi testuali dell'embed senza toccare i file allegati
+      await interaction.editReply({ embeds: [updatedEmbed] });
       return;
     }
 

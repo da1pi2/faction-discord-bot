@@ -303,11 +303,12 @@ module.exports = {
           noField
         );
 
-        const messagePayload = { embeds: [oldEmbed], attachments: [] };
+        const messagePayload = { embeds: [oldEmbed]};
 
         if (attachment) {
-          oldEmbed.setImage('attachment://map.png');
           messagePayload.files = [attachment];
+          // cancella i vecchi allegati SOLO se ne stiamo caricando uno nuovo
+          messagePayload.attachments = []; 
         }
 
         await message.edit(messagePayload);
@@ -380,15 +381,13 @@ module.exports = {
       );
 
       const payload = { 
-        content: '@everyone\n🆕 **New Event Created!**',
+        content: '@everyone\n',
         embeds: [embed], 
         components: [row],
         allowedMentions: { parse: ['everyone'] },
-        attachments: []
       };
       
       if (attachment) {
-        embed.setImage('attachment://map.png');
         payload.files = [attachment];
       }
 
