@@ -90,6 +90,10 @@ function getAllTimezones() {
 }
 
 function logSnapshot(summary) {
+  // Calcola la data limite in formato ISO identico a quello salvato nel DB
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('DELETE FROM activity_log WHERE timestamp < ?').run(cutoff);
+
   const stmt = db.prepare(`
     INSERT INTO activity_log (timestamp, utc_hour, day_count, peak_count, night_count, available_count, region_json)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -98,7 +102,7 @@ function logSnapshot(summary) {
     new Date().toISOString(),
     summary.utcHour,
     summary.byStatus.day || 0,
-    summary.byStatus.peak || 0, // <-- Passa 0 invece di undefined
+    summary.byStatus.peak || 0,
     summary.byStatus.night || 0,
     summary.byStatus.available || 0,
     '{}'
