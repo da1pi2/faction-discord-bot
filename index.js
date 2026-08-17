@@ -99,6 +99,39 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
 client.once('clientReady', async () => {
   console.log(`✅ Bot connesso come ${client.user.tag}`);
 
+  const statusChannelId = '1535252222626111651'; // canale bot-status
+  const nowUnix = Math.floor(Date.now() / 1000); // timestamp in secondi
+  
+  try {
+    const restartChannel = await client.channels.fetch(statusChannelId).catch(() => null);
+    if (restartChannel) {
+      const embed = new EmbedBuilder()
+        .setTitle('🤖 Dragonfire Bot Status')
+        .setColor(0x2ecc71)
+        .setDescription('The bot is currently **ONLINE** and operational.')
+        .addFields(
+          { name: 'Last Restart', value: `<t:${nowUnix}:F> (<t:${nowUnix}:R>)`, inline: true }
+        );
+
+      await restartChannel.send({ embeds: [embed] });
+      console.log('✅ Restart message sent to Discord channel.');
+    } else {
+      console.error(`❌ Could not fetch channel ${statusChannelId}. Check if the bot has permission to view it.`);
+    }
+  } catch (err) {
+    console.error('❌ Error sending Discord restart message:', err);
+  }
+
+  // Ping immediato al boot
+  const pingUrl = process.env.HEALTHCHECKS_PING_URL;
+  if (pingUrl) {
+    fetch(pingUrl)
+      .then(res => console.log(`✅ Ping a Healthchecks inviato! Status HTTP: ${res.status}`))
+      .catch(err => console.error('❌ Fallimento connessione a Healthchecks:', err));
+  } else {
+    console.error('⚠️ La variabile HEALTHCHECKS_PING_URL è vuota o inesistente. Controlla il pannello Wispbyte o il file .env!');
+  }
+
   const activeEvents = getAllEvents();
   for (const ev of activeEvents) {
     const targetDate = new Date(ev.target_date);
@@ -108,17 +141,6 @@ client.once('clientReady', async () => {
       scheduleEventTimers(client, ev);
     }
   }
-
-  // let backupTimeout = null;
-  // let latestReason = 'Automatic update on bot startup';
-  
-  // dbEvents.on('update', (reason) => {
-  //   if (reason) latestReason = reason;
-  //   if (backupTimeout) clearTimeout(backupTimeout);
-  //   backupTimeout = setTimeout(() => {
-  //     performDiscordBackup(latestReason);
-  //   }, 5000); 
-  // });
 
   for (const [, guild] of client.guilds.cache) {
     try {
@@ -140,6 +162,8 @@ client.once('clientReady', async () => {
     }
   }
 
+  // CRONJOBS
+
   cron.schedule('*/15 * * * *', async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
@@ -152,9 +176,20 @@ client.once('clientReady', async () => {
     }
   });
 
-  // Esegue il backup su Discord ogni 6 ore
+  // Esegue il backup su Discord ogni 3 ore
   cron.schedule('0 */3 * * *', async () => {
     await performDiscordBackup('Backup programmato ogni 3 ore');
+  });
+
+  // Invia un heartbeat a Healthchecks ogni 5 minuti
+  cron.schedule('*/5 * * * *', async () => {
+    if (pingUrl) {
+      try {
+        await fetch(pingUrl);
+      } catch (err) {
+        console.error("Errore invio heartbeat Healthchecks:", err);
+      }
+    }
   });
 });
 
