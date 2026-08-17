@@ -5,6 +5,17 @@ const EventEmitter = require('events');
 const db = new Database(path.join(__dirname, 'activity.sqlite'));
 const dbEvents = new EventEmitter();
 
+// --- OTTIMIZZAZIONI ANTI-CRASH PER CONTAINER (Wispbyte) ---
+// 1. Usa la cartella locale per i file temporanei anziché la cartella /tmp di sistema
+db.pragma(`temp_store_directory = '${path.join(__dirname).replace(/\\/g, '/')}'`);
+
+// 2. Abilita la modalità Write-Ahead Logging per evitare lock di disco pesanti
+db.pragma('journal_mode = WAL');
+
+// 3. Riduci la frequenza dei sync sincroni su disco per risparmiare I/O
+db.pragma('synchronous = NORMAL');
+// ----------------------------------------------------------
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
