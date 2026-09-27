@@ -10,7 +10,8 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  EmbedBuilder
+  EmbedBuilder,
+  MessageType
 } = require('discord.js');
 const { syncGuildActivityRoles } = require('./utils/roleManager');
 const { 
@@ -136,7 +137,18 @@ client.once('clientReady', async () => {
   for (const ev of activeEvents) {
     const targetDate = new Date(ev.target_date);
     if (targetDate.getTime() <= Date.now()) {
-      deleteEvent(ev.id);
+      //deleteEvent(ev.id);
+      // --- RIMUOVI PIN AL BOOT SE SCADUTO ---
+      try {
+        const channel = await client.channels.fetch(ev.channel_id);
+        const message = await channel.messages.fetch(ev.message_id);
+        if (message && message.pinned) {
+          await message.unpin();
+        }
+      } catch (err) {}
+      // --------------------------------------
+      const { archiveEvent } = require('./data/db'); // <--- MODIFICATO
+      archiveEvent(ev.id); // <--- MODIFICATO
     } else {
       scheduleEventTimers(client, ev);
     }
@@ -195,6 +207,12 @@ client.once('clientReady', async () => {
 
 // Ascolta tutti i messaggi per rilevare coordinate
 client.on('messageCreate', async (message) => {
+  // --- AUTO-PULIZIA MESSAGGI DI SISTEMA (PIN) ---
+  if (message.type === MessageType.ChannelPinnedMessage) {
+    message.delete().catch(() => {});
+    return; 
+  }
+
   if (message.author.bot) return;
 
   const coordRegex = /(?:\(\s*(\d{1,4})\s*,\s*(\d{1,4})\s*\))|(?:x\s*[:=]?\s*(\d{1,4})[,\s]+y\s*[:=]?\s*(\d{1,4}))/gi;
@@ -246,11 +264,11 @@ client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) {
     
     // 1. Gestione Pannello Availability (nuovo!)
-   if (interaction.customId.startsWith('rsvp_yes_') || interaction.customId.startsWith('rsvp_no_')) {
+   if (interaction.customId.startsWith('rsvp_yes_') || interaction.customId.startsWith('rsvp_no_') || interaction.customId.startsWith('rsvp_maybe_')) {
       await interaction.deferUpdate();
 
       const parts = interaction.customId.split('_');
-      const action = parts[1]; // 'yes' o 'no'
+      const action = parts[1]; // 'yes', 'no', o 'maybe'
       const eventId = parts[2];
       
       const ev = getEvent(eventId);
@@ -263,15 +281,21 @@ client.on('interactionCreate', async (interaction) => {
       
       const rsvps = getEventRsvps(eventId);
       const yesSet = rsvps.filter(r => r.status === 'yes').map(r => r.user_id);
+      const maybeSet = rsvps.filter(r => r.status === 'maybe').map(r => r.user_id);
       const noSet = rsvps.filter(r => r.status === 'no').map(r => r.user_id);
 
       const updatedEmbed = EmbedBuilder.from(interaction.message.embeds[0]);
       const yesIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('✅'));
+      const maybeIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('🤔'));
       const noIndex = updatedEmbed.data.fields.findIndex(f => f.name.startsWith('❌'));
 
       if (yesIndex !== -1) {
         updatedEmbed.data.fields[yesIndex].name = `✅ Available (${yesSet.length})`;
         updatedEmbed.data.fields[yesIndex].value = yesSet.length > 0 ? yesSet.map(id => `<@${id}>`).join('\n') : 'None yet';
+      }
+      if (maybeIndex !== -1) {
+        updatedEmbed.data.fields[maybeIndex].name = `🤔 Maybe (${maybeSet.length})`;
+        updatedEmbed.data.fields[maybeIndex].value = maybeSet.length > 0 ? maybeSet.map(id => `<@${id}>`).join('\n') : 'None yet';
       }
       if (noIndex !== -1) {
         updatedEmbed.data.fields[noIndex].name = `❌ Unavailable (${noSet.length})`;

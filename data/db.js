@@ -64,6 +64,19 @@ db.exec(`
     status TEXT NOT NULL,
     PRIMARY KEY (event_id, user_id)
   );
+
+  CREATE TABLE IF NOT EXISTS event_history (
+    event_id TEXT PRIMARY KEY,
+    name TEXT,
+    target_date TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS event_history_rsvps (
+    event_id TEXT,
+    user_id TEXT,
+    status TEXT,
+    PRIMARY KEY (event_id, user_id)
+  );
 `);
 
 // Mantieni solo queste due migrazioni per sicurezza sui vecchi DB
@@ -257,6 +270,46 @@ function getEventRsvps(eventId) {
   return db.prepare('SELECT user_id, status FROM event_rsvps WHERE event_id = ?').all(eventId);
 }
 
+function archiveEvent(eventId) {
+  const ev = getEvent(eventId);
+  if (!ev) return;
+  const rsvps = getEventRsvps(eventId);
+  
+  db.prepare('INSERT INTO event_history (event_id, name, target_date) VALUES (?, ?, ?)').run(ev.id, ev.name, ev.target_date);
+  
+  const stmt = db.prepare('INSERT INTO event_history_rsvps (event_id, user_id, status) VALUES (?, ?, ?)');
+  for (const r of rsvps) {
+    stmt.run(ev.id, r.user_id, r.status);
+  }
+  
+  deleteEvent(eventId);
+}
+
+function getEventStats() {
+  // Top partecipanti
+  const topUsers = db.prepare(`
+    SELECT user_id, COUNT(*) as count 
+    FROM event_history_rsvps 
+    WHERE status = 'yes' 
+    GROUP BY user_id 
+    ORDER BY count DESC 
+    LIMIT 10
+  `).all();
+  
+  // Orari migliori (estrae l'ora UTC formattata dal timestamp ISO-8601)
+  const bestHours = db.prepare(`
+    SELECT strftime('%H', target_date) as hour, COUNT(DISTINCT event_history.event_id) as ev_count, SUM(
+      (SELECT COUNT(*) FROM event_history_rsvps WHERE event_history_rsvps.event_id = event_history.event_id AND status = 'yes')
+    ) as total_yes
+    FROM event_history
+    GROUP BY hour
+    ORDER BY total_yes DESC
+    LIMIT 5
+  `).all();
+  
+  return { topUsers, bestHours };
+}
+
 module.exports = {
   db,
   dbEvents,
@@ -285,4 +338,6 @@ module.exports = {
   getAllEvents,
   setEventRsvp,
   getEventRsvps,
+  archiveEvent,
+  getEventStats
 };

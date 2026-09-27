@@ -59,12 +59,17 @@ function scheduleEventTimers(client, eventRow) {
 
   const timers = { oneHour: null, fiveMin: null, start: null };
 
-  // Funzione helper per recuperare chi ha cliccato "Available" nel momento esatto del timer
-  const getMentions = () => {
+  // Helper per dati RSVP dinamici
+  const getRsvpData = () => {
     const { getEventRsvps } = require('../data/db');
     const rsvps = getEventRsvps(eventId);
-    const yesIds = rsvps.filter(r => r.status === 'yes').map(r => `<@${r.user_id}>`);
-    return yesIds.length > 0 ? yesIds.join(' ') : '';
+    const yesSet = rsvps.filter(r => r.status === 'yes');
+    const maybeSet = rsvps.filter(r => r.status === 'maybe');
+    const noSet = rsvps.filter(r => r.status === 'no');
+    
+    const mentions = yesSet.map(r => `<@${r.user_id}>`).join(' ');
+    const text = `✅ **${yesSet.length}** | 🤔 **${maybeSet.length}** | ❌ **${noSet.length}**`;
+    return { mentions, text };
   };
 
   // Timer 1 Ora
@@ -73,8 +78,8 @@ function scheduleEventTimers(client, eventRow) {
       try {
         const channel = await client.channels.fetch(eventRow.channel_id);
         if (channel) {
-          const mentions = getMentions();
-          channel.send(`🐉 **${eventRow.name}** starts in 1 hour!\n${mentions}`).catch(console.error);
+          const { mentions, text } = getRsvpData();
+          channel.send(`🐉 **${eventRow.name}** starts in 1 hour!\n📊 RSVPs: ${text}\n${mentions}`).catch(console.error);
         }
       } catch(e) { console.error('Error in 1h reminder timer:', e); }
     }, msUntilOneHour);
@@ -86,22 +91,41 @@ function scheduleEventTimers(client, eventRow) {
       try {
         const channel = await client.channels.fetch(eventRow.channel_id);
         if (channel) {
-          const mentions = getMentions();
-          channel.send(`🐉 **${eventRow.name}** starts in 5 minutes!\n${mentions}`).catch(console.error);
+          const { mentions, text } = getRsvpData();
+          channel.send(`🐉 **${eventRow.name}** starts in 5 minutes!\n📊 RSVPs: ${text}\n${mentions}`).catch(console.error);
         }
       } catch(e) { console.error('Error in 5m reminder timer:', e); }
     }, msUntilFiveMin);
   }
 
-  // Timer di Start (nessun ping)
+  // Timer di Start (nessun ping) + Auto-close ed Archiviazione
   timers.start = setTimeout(async () => {
     try {
       const channel = await client.channels.fetch(eventRow.channel_id);
       if (channel) {
-        const { deleteEvent } = require('../data/db');
-        // Nessun tag qui, avvisa solo dell'inizio
         channel.send(`🐉 **${eventRow.name} started!**`).catch(console.error);
-        deleteEvent(eventId);
+        
+        try {
+          const message = await channel.messages.fetch(eventRow.message_id);
+          if (message) {
+            if (message.pinned) await message.unpin();
+            
+            const disabledRow = new ActionRowBuilder().addComponents(
+              new ButtonBuilder().setCustomId(`rsvp_yes_${eventId}`).setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(true),
+              new ButtonBuilder().setCustomId(`rsvp_maybe_${eventId}`).setLabel('Maybe').setStyle(ButtonStyle.Primary).setEmoji('🤔').setDisabled(true),
+              new ButtonBuilder().setCustomId(`rsvp_no_${eventId}`).setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌').setDisabled(true)
+            );
+            
+            const startedEmbed = EmbedBuilder.from(message.embeds[0])
+              .setTitle(`🟢 EVENT STARTED: ${eventRow.name}`)
+              .setColor(0x2ecc71);
+
+            await message.edit({ embeds: [startedEmbed], components: [disabledRow] }).catch(() => {});
+          }
+        } catch(e) { console.error('Impossibile rimuovere il pin o chiudere embed:', e); }
+        
+        const { archiveEvent } = require('../data/db');
+        archiveEvent(eventId);
       }
       eventTimers.delete(eventId);
     } catch(e) { console.error('Error in start timer:', e); }
@@ -161,6 +185,16 @@ module.exports = {
         .setName('remove')
         .setDescription('Cancel an upcoming event')
         .addStringOption((opt) => opt.setName('id').setDescription('Select the event to remove').setRequired(true).setAutocomplete(true))
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('next')
+        .setDescription('Show the next upcoming event')
+    )
+    .addSubcommand((sub) =>
+      sub
+        .setName('stats')
+        .setDescription('Show event participation history and best hours')
     ),
 
   scheduleEventTimers,
@@ -221,8 +255,16 @@ module.exports = {
           const channel = await interaction.client.channels.fetch(ev.channel_id);
           const message = await channel.messages.fetch(ev.message_id);
           if (message) {
+            // --- RIMUOVI IL PIN IN CASO DI CANCELLAZIONE ---
+            if (message.pinned) {
+              await message.unpin().catch(() => {});
+            }
+
             const disabledRow = new ActionRowBuilder().addComponents(
               new ButtonBuilder().setCustomId(`rsvp_yes_${eventId}`).setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(true),
+              // --- DISABILITA IL BOTTONE MAYBE ---
+              new ButtonBuilder().setCustomId(`rsvp_maybe_${eventId}`).setLabel('Maybe').setStyle(ButtonStyle.Primary).setEmoji('🤔').setDisabled(true),
+              // -----------------------------------
               new ButtonBuilder().setCustomId(`rsvp_no_${eventId}`).setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌').setDisabled(true)
             );
 
@@ -264,7 +306,21 @@ module.exports = {
 
       await interaction.deferReply({ ephemeral: true });
 
+      const oldDate = ev.target_date;
       const newDateStr = targetDate.toISOString();
+      updateEventDetails(eventId, newDateStr, rawX, rawY);
+      scheduleEventTimers(interaction.client, { ...ev, target_date: newDateStr });
+
+      // --- NOTIFICA AUTOMATICA CAMBIO ORARIO ---
+      if (oldDate !== newDateStr) {
+        const oldUnix = toUnixTimestamp(new Date(oldDate));
+        const newUnix = toUnixTimestamp(targetDate);
+        const channel = await interaction.client.channels.fetch(ev.channel_id).catch(() => null);
+        if (channel) {
+          channel.send(`⚠️ Event **${ev.name}** has been moved!\n🕒 New time (in your local time): <t:${newUnix}:F> *(previously <t:${oldUnix}:F>)*`).catch(() => {});
+        }
+      }
+
       updateEventDetails(eventId, newDateStr, rawX, rawY);
       scheduleEventTimers(interaction.client, { ...ev, target_date: newDateStr });
 
@@ -287,6 +343,7 @@ module.exports = {
         
         const oldEmbed = EmbedBuilder.from(message.embeds[0]);
         const yesField = oldEmbed.data.fields.find(f => f.name.startsWith('✅')) || { name: '✅ Available (0)', value: 'None yet', inline: true };
+        const maybeField = oldEmbed.data.fields.find(f => f.name.startsWith('🤔')) || { name: '🤔 Maybe (0)', value: 'None yet', inline: true };
         const noField = oldEmbed.data.fields.find(f => f.name.startsWith('❌')) || { name: '❌ Unavailable (0)', value: 'None yet', inline: true };
         
         const availString = await buildAvailabilityString(interaction.guild, targetDate);
@@ -299,6 +356,7 @@ module.exports = {
           { name: 'Starts In', value: `<t:${unixSec}:R>`, inline: true },
           { name: 'Event ID', value: `\`${eventId}\``, inline: true },
           { name: '📊 Theoretical Availability', value: availString, inline: false },
+          maybeField,
           yesField,
           noField
         );
@@ -372,12 +430,28 @@ module.exports = {
 
       embed.addFields(
         { name: '✅ Available (0)', value: 'None yet', inline: true },
+        { name: '🤔 Maybe (0)', value: 'None yet', inline: true },
         { name: '❌ Unavailable (0)', value: 'None yet', inline: true }
       );
 
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rsvp_yes_${eventId}`).setLabel('Available').setStyle(ButtonStyle.Success).setEmoji('✅'),
-        new ButtonBuilder().setCustomId(`rsvp_no_${eventId}`).setLabel('Unavailable').setStyle(ButtonStyle.Danger).setEmoji('❌')
+        new ButtonBuilder()
+            .setCustomId(`rsvp_yes_${eventId}`)
+            .setLabel('Available')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('✅'),
+
+        new ButtonBuilder()
+            .setCustomId(`rsvp_maybe_${eventId}`)
+            .setLabel('Maybe')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🤔'),
+
+        new ButtonBuilder()
+            .setCustomId(`rsvp_no_${eventId}`)
+            .setLabel('Unavailable')
+            .setStyle(ButtonStyle.Danger)
+            .setEmoji('✖️')
       );
 
       const payload = { 
@@ -393,6 +467,13 @@ module.exports = {
 
       const response = await interaction.editReply(payload);
 
+      // --- FISSA IL MESSAGGIO EVENTO ---
+      try {
+        await response.pin();
+      } catch (err) {
+        console.error('Non posso fissare il messaggio (mancano permessi Manage Messages?):', err);
+      }
+
       const eventRow = {
         id: eventId,
         name,
@@ -406,6 +487,55 @@ module.exports = {
       
       addEvent(eventRow);
       scheduleEventTimers(interaction.client, eventRow);
+    }
+
+    if (subcommand === 'next') {
+      const events = getAllEvents();
+      if (events.length === 0) {
+        return interaction.reply({ content: '⚠️ No upcoming events scheduled.', ephemeral: true });
+      }
+      
+      // Ordina per data crescente (il più vicino prima)
+      events.sort((a, b) => new Date(a.target_date) - new Date(b.target_date));
+      const nextEv = events[0];
+      
+      const { getEventRsvps } = require('../data/db');
+      const rsvps = getEventRsvps(nextEv.id);
+      const yesCount = rsvps.filter(r => r.status === 'yes').length;
+      const maybeCount = rsvps.filter(r => r.status === 'maybe').length;
+      const noCount = rsvps.filter(r => r.status === 'no').length;
+      
+      const unixSec = toUnixTimestamp(new Date(nextEv.target_date));
+      const embed = new EmbedBuilder()
+        .setTitle(`⏭️ Next Event: ${nextEv.name}`)
+        .setColor(0x3498db)
+        .setDescription(`**Time:** <t:${unixSec}:F> (<t:${unixSec}:R>)\n**Location:** ${nextEv.x !== null ? `(${nextEv.x},${nextEv.y})` : 'Not specified'}\n\n**RSVPs:**\n✅ ${yesCount} | 🤔 ${maybeCount} | ❌ ${noCount}\n\n[🔗 Go to event message](https://discord.com/channels/${interaction.guildId}/${nextEv.channel_id}/${nextEv.message_id})`);
+        
+      return interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+
+    if (subcommand === 'stats') {
+      const { getEventStats } = require('../data/db');
+      const stats = getEventStats();
+      
+      if (!stats || stats.topUsers.length === 0) {
+        return interaction.reply({ content: '⚠️ No event history available yet. Events must be completed to generate statistics.', ephemeral: true });
+      }
+      
+      const embed = new EmbedBuilder()
+        .setTitle('📊 Event Participation History')
+        .setColor(0x9b59b6)
+        .setDescription('Based on users who clicked "Available" for completed events.');
+        
+      const topUsersText = stats.topUsers.map((u, i) => `**${i+1}.** <@${u.user_id}> — ${u.count} events`).join('\n');
+      const bestHoursText = stats.bestHours.map(h => `**${h.hour}:00 UTC** — ${h.total_yes} attendees across ${h.ev_count} events`).join('\n');
+      
+      embed.addFields(
+        { name: '🏆 Top Participants', value: topUsersText || 'None', inline: false },
+        { name: '🕒 Best Hours (UTC)', value: bestHoursText || 'None', inline: false }
+      );
+      
+      return interaction.reply({ embeds: [embed] });
     }
   },
 };
