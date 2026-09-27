@@ -53,14 +53,14 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
   }
 
   const messages = await fetchRecentMessages(channel, hours);
-  console.log(`[summary] messages found in the last ${hours}h: ${messages.length}`); // debug temporaneo
+  console.log(`[summary] messages found in the last ${hours}h: ${messages.length}`);
 
   if (messages.length === 0) {
     return {
       summary: 'I did not find enough messages in the requested time window.',
       messagesCount: 0,
       authorsCount: 0,
-      model: DEFAULT_MODEL,
+      model: 'N/A',
     };
   }
 
@@ -73,18 +73,56 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
     .join('\n');
 
   const systemPrompt = [
-  'You are an expert gaming assistant that summarizes Discord alliance/team conversations accurately and concisely.',
-    'Write the summary in ${language}.',
-    'Do not invent missing details or hallucinate game mechanics.',
-    'Your primary task is to extract and structure the following key gameplay elements:',
-    '- CHOSEN STRATEGIES: Highlight the specific tactics, plans, or actions the team has firmly decided to execute.',
-    '- POSSIBILITIES TO EVALUATE: List alternative options, hypotheses, or future moves currently under discussion.',
-    '- COORDINATES: Extract a clear list of all mentioned in-game coordinates along with their associated targets, threats, or relevant information.',
-    'If the chat content is sparse, irrelevant, or too noisy, state so clearly.',
-    'IMPORTANT: Reply ONLY with the final summary, organized logically using bullet points.',
-    'Do not include your reasoning, analysis steps, meta-comments, literal translations of the original messages,',
-    'or conversational filler like "Here is the summary" or "The user wants...".',
-    'Do not repeat the instructions you received. Do not add preambles or final notes.'
+    'You are an expert gaming assistant specialized in analyzing Discord alliance/team conversations and producing accurate, concise, actionable gameplay summaries.',
+
+    `LANGUAGE: Write the entire final output exclusively in ${language}. Preserve game names, usernames, coordinates, abbreviations, and necessary in-game terms exactly as written.`,
+
+    'TASK: Extract gameplay-relevant decisions, strategic possibilities, coordinates, targets, threats, objectives, movements, and relevant timing information.',
+
+    'CHOSEN STRATEGIES:',
+    '- Include ONLY actions or plans that have been explicitly confirmed or clearly agreed upon by the team.',
+    '- A proposal, suggestion, question, hypothesis, or personal opinion is NOT a chosen strategy.',
+    '- Silence or lack of disagreement does NOT imply agreement.',
+    '- If players disagree or no final decision exists, do not choose a strategy on their behalf.',
+
+    'POSSIBILITIES TO EVALUATE:',
+    '- Include proposals, alternatives, hypotheses, unresolved plans, and actions still under discussion.',
+    '- Clearly preserve uncertainty and disagreement.',
+    '- Never present a possibility as a confirmed decision.',
+
+    'COORDINATES:',
+    '- Extract every explicitly mentioned in-game coordinate.',
+    '- Preserve coordinates exactly as written.',
+    '- Associate each coordinate with its target, player, alliance, objective, threat, or relevant context.',
+    '- Never invent or infer coordinates.',
+    '- Consolidate repeated mentions of the same coordinate when they refer to the same situation.',
+
+    'TIMING:',
+    '- Extract relevant dates, times, deadlines, countdowns, or time windows when they affect gameplay actions.',
+    '- Do not invent or assume missing dates, times, or timezones.',
+
+    'ACCURACY:',
+    '- Do not invent facts, outcomes, intentions, strategies, players, targets, or coordinates.',
+    '- Ignore unrelated conversation, jokes, greetings, and noise.',
+    '- Preserve important uncertainty and conflicting opinions.',
+    '- Prefer factual extraction over interpretation.',
+
+    'OUTPUT:',
+    '- Start immediately with bullet points.',
+    '- Use these sections when applicable:',
+    '  • CHOSEN STRATEGIES',
+    '  • POSSIBILITIES TO EVALUATE',
+    '  • COORDINATES',
+    '- Omit empty sections.',
+    '- Keep bullets concise but include information necessary to understand and execute the plan.',
+    '- Include timing information when relevant.',
+    '- If the chat contains little or no useful gameplay information, state this clearly in one short bullet.',
+
+    'STRICT RULES:',
+    '- Output ONLY the final summary.',
+    '- Do not output reasoning, chain-of-thought, analysis, or meta-commentary.',
+    '- Do not write "Here is the summary", "Let me analyze", "I think", or similar introductory phrases.',
+    '- The first character of the response must be the beginning of a bullet point.'
   ].join(' ');
 
   const userPrompt = [
@@ -96,50 +134,74 @@ async function summarizeChannelMessages({ channel, guildName, channelName, hours
     transcript,
   ].join('\n');
 
-  const response = await fetch(OPENROUTER_API_URL, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://localhost',
-      'X-Title': process.env.OPENROUTER_APP_NAME || 'Discord Summary Bot',
-    },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 900,
-    }),
-  });
+  // Recupera i modelli dal .env (separati da virgola) o usa una lista di default super stabile
+  const modelList = process.env.OPENROUTER_MODEL
+    ? process.env.OPENROUTER_MODEL.split(',').map(m => m.trim())
+    : [
+        'meta-llama/llama-3.3-70b-instruct:free',
+        'google/gemini-2.5-flash-lite-preview:free',
+        'microsoft/phi-3-mini-128k-instruct:free',
+        'qwen/qwen-2.5-72b-instruct:free'
+      ];
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter ha risposto con ${response.status}: ${errorText}`);
+  let lastError;
+
+  // Ciclo di Fallback: prova un modello alla volta
+  for (const currentModel of modelList) {
+    try {
+      console.log(`[summary] Tentativo in corso con il modello: ${currentModel}...`);
+      
+      const response = await fetch(OPENROUTER_API_URL, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.OPENROUTER_SITE_URL || 'https://localhost',
+          'X-Title': process.env.OPENROUTER_APP_NAME || 'Discord Summary Bot',
+        },
+        body: JSON.stringify({
+          model: currentModel,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.2,
+          max_tokens: 900,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Status ${response.status}: ${errorText}`);
+      }
+
+      const payload = await response.json();
+      let summary = payload?.choices?.[0]?.message?.content?.trim();
+
+      if (summary) {
+        // Rimuovi eventuali tag <think> dei modelli "reasoning"
+        summary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        
+        console.log(`[summary] ✅ Successo con il modello: ${currentModel}`);
+        return {
+          summary,
+          messagesCount: messages.length,
+          authorsCount: authors.size,
+          model: currentModel, // Passa all'embed il nome del modello che ha effettivamente funzionato
+        };
+      } else {
+        throw new Error('L\'API non ha restituito testo valido.');
+      }
+
+    } catch (error) {
+      console.error(`[summary] ❌ Fallito con ${currentModel}:`, error.message);
+      lastError = error;
+      // Continua il ciclo: passa al prossimo modello nell'array
+    }
   }
 
-  const payload = await response.json();
-  let summary = payload?.choices?.[0]?.message?.content?.trim();
-
-  if (summary) {
-    // Alcuni modelli "reasoning" inseriscono il proprio ragionamento dentro
-    // tag tipo <think>...</think> anche quando gli si chiede di non farlo.
-    // Li rimuoviamo per sicurezza, qualunque sia il modello configurato.
-    summary = summary.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-  }
-
-  if (!summary) {
-    throw new Error('OpenRouter did not return a valid summary');
-  }
-
-  return {
-    summary,
-    messagesCount: messages.length,
-    authorsCount: authors.size,
-    model: payload.model || DEFAULT_MODEL,
-  };
+  // Se siamo usciti dal ciclo, tutti i modelli hanno fallito
+  throw new Error(`Tutti i modelli di fallback hanno fallito. Ultimo errore: ${lastError.message}`);
 }
 
 module.exports = {
