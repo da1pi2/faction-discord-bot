@@ -10,7 +10,7 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply();
 
-    const savedTimezones = getAllTimezones();
+    const savedTimezones = getAllTimezones(interaction.guildId);
 
     if (savedTimezones.length === 0) {
       await interaction.editReply({

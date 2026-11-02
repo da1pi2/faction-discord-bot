@@ -23,7 +23,7 @@ async function syncGuildActivityRoles(guild) {
   const statusRoles = await ensureStatusRolesExist(guild);
   const utcHour = currentUtcHour();
   
-  const allTz = getAllTimezones();
+  const allTz = getAllTimezones(guild.id);
   const tzMap = new Map(allTz.map(row => [row.user_id, row]));
 
   const summary = {
@@ -48,7 +48,7 @@ async function syncGuildActivityRoles(guild) {
     }
 
     // MODIFICA QUI: Recuperiamo l'array di slot dal DB e lo passiamo
-    const userSlots = getUserAvailabilities(member.id);
+    const userSlots = getUserAvailabilities(guild.id, member.id);
     const status = statusForOffsetAtUtcHour(utcHour, tzData.utc_offset, userSlots); 
     summary.byStatus[status] += 1;
 
@@ -65,7 +65,7 @@ async function syncGuildActivityRoles(guild) {
 }
 
 async function getGuildMembersTimezones(guild) {
-  const allTz = getAllTimezones();
+  const allTz = getAllTimezones(guild.id);
   const tzMap = new Map(allTz.map(row => [row.user_id, row]));
   const activeMembers = [];
 
@@ -74,7 +74,7 @@ async function getGuildMembersTimezones(guild) {
     const tzData = tzMap.get(member.id);
     if (tzData) {
       // MODIFICA QUI: Costruiamo l'oggetto includendo gli slot reali
-      const userSlots = getUserAvailabilities(member.id);
+      const userSlots = getUserAvailabilities(guild.id, member.id);
       activeMembers.push({
         utc_offset: tzData.utc_offset,
         slots: userSlots

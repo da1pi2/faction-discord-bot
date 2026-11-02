@@ -92,7 +92,7 @@ module.exports = {
       const y = clampCoordinate(rawY, MAX_Y);
 
       try {
-        addObjective(name, x, y);
+        addObjective(interaction.guildId, name, x, y);
       } catch (error) {
         if (error && typeof error.code === 'string' && error.code.startsWith('SQLITE_CONSTRAINT')) {
           await interaction.reply({
@@ -129,7 +129,7 @@ module.exports = {
       const x = clampCoordinate(rawX, MAX_X);
       const y = clampCoordinate(rawY, MAX_Y);
 
-      const result = updateObjective(name, x, y);
+      const result = updateObjective(interaction.guildId, name, x, y);
 
       if (result.changes === 0) {
         await interaction.reply({
@@ -148,7 +148,7 @@ module.exports = {
 
     if (action === 'remove') {
       const name = interaction.options.getString('name').trim();
-      const result = deleteObjective(name);
+      const result = deleteObjective(interaction.guildId, name);
 
       await interaction.reply({
         content: result.changes > 0 ? `✅ Objective **${name}** removed.` : `⚠️ Objective **${name}** was not found.`,
@@ -158,7 +158,7 @@ module.exports = {
     }
 
     if (action === 'clear') {
-      const result = clearObjectives();
+      const result = clearObjectives(interaction.guildId);
       await interaction.reply({
         content: `✅ Cleared ${result.changes} saved objective(s).`,
         ephemeral: true,
@@ -167,7 +167,7 @@ module.exports = {
     }
 
     if (action === 'list') {
-      const objectives = listObjectives();
+      const objectives = listObjectives(interaction.guildId);
       const embed = new EmbedBuilder()
         .setTitle('📍 Saved Objectives')
         .setColor(0x3498db)
@@ -181,7 +181,7 @@ module.exports = {
       const isPublic = interaction.options.getBoolean('public') ?? false;
       await interaction.deferReply({ flags: isPublic ? undefined : MessageFlags.Ephemeral });
 
-      const objectives = listObjectives();
+      const objectives = listObjectives(interaction.guildId);
       if (objectives.length === 0) {
         await interaction.editReply({ content: '⚠️ No objectives saved yet.' });
         return;

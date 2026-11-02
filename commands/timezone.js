@@ -21,7 +21,7 @@ module.exports = {
     const offset = interaction.options.getNumber('offset');
     
     // Salva nel DB
-    setUserTimezone(interaction.user.id, offset);
+    setUserTimezone(interaction.guildId, interaction.user.id, offset);
     
     // Forza un sync per aggiornare immediatamente il suo ruolo
     // (potremmo aggiornare solo il suo per risparmiare API calls, ma il sync globale è rapido)

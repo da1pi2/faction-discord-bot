@@ -14,7 +14,7 @@ module.exports = {
     await interaction.deferReply();
 
     const summary = await syncGuildActivityRoles(interaction.guild);
-    logSnapshot(summary);
+    logSnapshot(interaction.guildId, summary);
 
     const embed = new EmbedBuilder()
       .setTitle('🌍 Alliance Status')

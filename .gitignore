@@ -1,3 +1,5 @@
 .env
 /node_modules
 /data/activity.sqlite
+/data/*.sqlite*
+/data/backups/

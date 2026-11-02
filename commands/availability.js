@@ -46,7 +46,7 @@ module.exports = {
 
     if (subcommand === 'list') {
       await interaction.deferReply();
-      const list = getAllAvailabilities();
+      const list = getAllAvailabilities(interaction.guildId);
 
       if (list.length === 0) {
         await interaction.editReply({ content: '⚠️ No custom availability slots set yet.' });
@@ -106,7 +106,7 @@ module.exports = {
     // Per i comandi singoli (add / clear manuale)
     await interaction.deferReply({ ephemeral: true });
 
-    const userTz = getUserTimezone(interaction.user.id);
+    const userTz = getUserTimezone(interaction.guildId, interaction.user.id);
     if (!userTz) {
       await interaction.editReply({ content: '⚠️ You need to set a timezone first using `/timezone`.' });
       return;
@@ -116,17 +116,17 @@ module.exports = {
       const start = interaction.options.getInteger('start');
       const end = interaction.options.getInteger('end');
 
-      addUserAvailability(interaction.user.id, start, end);
+      addUserAvailability(interaction.guildId, interaction.user.id, start, end);
       await syncGuildActivityRoles(interaction.guild);
 
-      const userSlots = getUserAvailabilities(interaction.user.id);
+      const userSlots = getUserAvailabilities(interaction.guildId, interaction.user.id);
       const slotsFormatted = userSlots.map(s => `\`${String(s.available_start).padStart(2, '0')}:00 - ${String(s.available_end).padStart(2, '0')}:00\``).join(', ');
 
       await interaction.editReply({
         content: `✅ Added slot: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00**.\nYour current active slots: ${slotsFormatted}`,
       });
     } else if (subcommand === 'clear') {
-      clearUserAvailabilities(interaction.user.id);
+      clearUserAvailabilities(interaction.guildId, interaction.user.id);
       await syncGuildActivityRoles(interaction.guild);
 
       await interaction.editReply({

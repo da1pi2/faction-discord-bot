@@ -37,7 +37,7 @@ module.exports = {
       });
     }
 
-    // const history = getHistoricalAverageByHour();
+    // const history = getHistoricalAverageByHour(interaction.guildId);
     // const totalSamples = history.reduce((sum, r) => sum + r.samples, 0);
 
     // if (totalSamples >= MIN_SAMPLES_FOR_HISTORY && history.length > 0) {

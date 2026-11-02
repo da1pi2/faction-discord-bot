@@ -14,7 +14,7 @@ module.exports = {
   async execute(interaction) {
     const targetUser = interaction.options.getUser('user') ?? interaction.user;
     
-    const userTz = getUserTimezone(targetUser.id);
+    const userTz = getUserTimezone(interaction.guildId, targetUser.id);
 
     if (!userTz) {
       await interaction.reply({
@@ -27,7 +27,7 @@ module.exports = {
     const utcHour = currentUtcHour();
     const localHour = toLocalHour(utcHour, userTz.utc_offset);
     
-    const userSlots = getUserAvailabilities(targetUser.id);
+    const userSlots = getUserAvailabilities(interaction.guildId, targetUser.id);
     const statusKey = statusForOffsetAtUtcHour(utcHour, userTz.utc_offset, userSlots);
     const status = STATUS_ROLES[statusKey];
 

@@ -42,8 +42,9 @@ async function buildAvailabilityString(guild, targetDate) {
 }
 
 function scheduleEventTimers(client, eventRow) {
-  if (eventTimers.has(eventRow.id)) {
-    const existing = eventTimers.get(eventRow.id);
+  const timerKey = `${eventRow.guild_id}:${eventRow.id}`;
+  if (eventTimers.has(timerKey)) {
+    const existing = eventTimers.get(timerKey);
     if (existing.oneHour) clearTimeout(existing.oneHour);
     if (existing.fiveMin) clearTimeout(existing.fiveMin);
     if (existing.start) clearTimeout(existing.start);
@@ -62,7 +63,7 @@ function scheduleEventTimers(client, eventRow) {
   // Helper per dati RSVP dinamici
   const getRsvpData = () => {
     const { getEventRsvps } = require('../data/db');
-    const rsvps = getEventRsvps(eventId);
+    const rsvps = getEventRsvps(eventRow.guild_id, eventId);
     const yesSet = rsvps.filter(r => r.status === 'yes');
     const maybeSet = rsvps.filter(r => r.status === 'maybe');
     const noSet = rsvps.filter(r => r.status === 'no');
@@ -76,7 +77,7 @@ function scheduleEventTimers(client, eventRow) {
   if (msUntilOneHour > 0) {
     timers.oneHour = setTimeout(async () => {
       try {
-        const channel = await client.channels.fetch(eventRow.channel_id);
+        const channel = await require('../utils/guildChannels').fetchGuildChannel(client, eventRow.guild_id, eventRow.channel_id);
         if (channel) {
           const { mentions, text } = getRsvpData();
           channel.send(`🐉 **${eventRow.name}** starts in 1 hour!\n📊 RSVPs: ${text}\n${mentions}`).catch(console.error);
@@ -89,7 +90,7 @@ function scheduleEventTimers(client, eventRow) {
   if (msUntilFiveMin > 0) {
     timers.fiveMin = setTimeout(async () => {
       try {
-        const channel = await client.channels.fetch(eventRow.channel_id);
+        const channel = await require('../utils/guildChannels').fetchGuildChannel(client, eventRow.guild_id, eventRow.channel_id);
         if (channel) {
           const { mentions, text } = getRsvpData();
           channel.send(`🐉 **${eventRow.name}** starts in 5 minutes!\n📊 RSVPs: ${text}\n${mentions}`).catch(console.error);
@@ -101,7 +102,7 @@ function scheduleEventTimers(client, eventRow) {
   // Timer di Start (nessun ping) + Auto-close ed Archiviazione
   timers.start = setTimeout(async () => {
     try {
-      const channel = await client.channels.fetch(eventRow.channel_id);
+      const channel = await require('../utils/guildChannels').fetchGuildChannel(client, eventRow.guild_id, eventRow.channel_id);
       if (channel) {
         channel.send(`🐉 **${eventRow.name} started!**`).catch(console.error);
         
@@ -124,14 +125,14 @@ function scheduleEventTimers(client, eventRow) {
           }
         } catch(e) { console.error('Impossibile rimuovere il pin o chiudere embed:', e); }
         
-        const { archiveEvent } = require('../data/db');
-        archiveEvent(eventId);
       }
-      eventTimers.delete(eventId);
+      const { archiveEvent } = require('../data/db');
+      archiveEvent(eventRow.guild_id, eventId);
+      eventTimers.delete(timerKey);
     } catch(e) { console.error('Error in start timer:', e); }
   }, Math.max(msUntilEvent, 0));
 
-  eventTimers.set(eventId, timers);
+  eventTimers.set(timerKey, timers);
 }
 
 module.exports = {
@@ -202,7 +203,7 @@ module.exports = {
   async autocomplete(interaction) {
     const focusedValue = interaction.options.getFocused().toLowerCase();
     const { getAllEvents } = require('../data/db');
-    const events = getAllEvents();
+    const events = getAllEvents(interaction.guildId);
     
     const choices = events.map(ev => ({ name: `${ev.name} (ID: ${ev.id})`, value: ev.id }));
     const filtered = choices.filter(choice => choice.name.toLowerCase().includes(focusedValue));
@@ -214,7 +215,7 @@ module.exports = {
     const { getEvent, getAllEvents, deleteEvent, updateEventDetails, addEvent } = require('../data/db');
 
     if (subcommand === 'list') {
-      const events = getAllEvents();
+      const events = getAllEvents(interaction.guildId);
       if (events.length === 0) {
         return interaction.reply({ content: '⚠️ No scheduled events at the moment.', ephemeral: true });
       }
@@ -233,26 +234,27 @@ module.exports = {
     }
 
     if (subcommand === 'remove') {
+      const timerKey = `${interaction.guildId}:${interaction.options.getString('id').toUpperCase()}`;
       const eventId = interaction.options.getString('id').toUpperCase();
-      const ev = getEvent(eventId);
+      const ev = getEvent(interaction.guildId, eventId);
 
       if (!ev) {
         return interaction.reply({ content: `❌ Event not found. It might have already ended or been cancelled.`, ephemeral: true });
       }
 
-      if (eventTimers.has(eventId)) {
-        const timers = eventTimers.get(eventId);
+      if (eventTimers.has(timerKey)) {
+        const timers = eventTimers.get(timerKey);
         if (timers.oneHour) clearTimeout(timers.oneHour);
         if (timers.fiveMin) clearTimeout(timers.fiveMin);
         if (timers.start) clearTimeout(timers.start);
-        eventTimers.delete(eventId);
+        eventTimers.delete(timerKey);
       }
 
-      deleteEvent(eventId);
+      deleteEvent(interaction.guildId, eventId);
 
       if (ev.channel_id && ev.message_id) {
         try {
-          const channel = await interaction.client.channels.fetch(ev.channel_id);
+          const channel = await require('../utils/guildChannels').fetchGuildChannel(interaction.client, interaction.guildId, ev.channel_id);
           const message = await channel.messages.fetch(ev.message_id);
           if (message) {
             // --- RIMUOVI IL PIN IN CASO DI CANCELLAZIONE ---
@@ -289,7 +291,7 @@ module.exports = {
       const rawX = parsedCoordinates?.x ?? interaction.options.getInteger('x');
       const rawY = parsedCoordinates?.y ?? interaction.options.getInteger('y');
 
-      const ev = getEvent(eventId);
+      const ev = getEvent(interaction.guildId, eventId);
 
       if (!ev) {
         return interaction.reply({ content: `❌ Event not found. It might have already ended or been cancelled.`, ephemeral: true });
@@ -308,21 +310,20 @@ module.exports = {
 
       const oldDate = ev.target_date;
       const newDateStr = targetDate.toISOString();
-      updateEventDetails(eventId, newDateStr, rawX, rawY);
+      updateEventDetails(interaction.guildId, eventId, newDateStr, rawX, rawY);
       scheduleEventTimers(interaction.client, { ...ev, target_date: newDateStr });
 
       // --- NOTIFICA AUTOMATICA CAMBIO ORARIO ---
       if (oldDate !== newDateStr) {
         const oldUnix = toUnixTimestamp(new Date(oldDate));
         const newUnix = toUnixTimestamp(targetDate);
-        const channel = await interaction.client.channels.fetch(ev.channel_id).catch(() => null);
+        const channel = await require('../utils/guildChannels').fetchGuildChannel(interaction.client, interaction.guildId, ev.channel_id).catch(() => null);
         if (channel) {
           channel.send(`⚠️ Event **${ev.name}** has been moved!\n🕒 New time (in your local time): <t:${newUnix}:F> *(previously <t:${oldUnix}:F>)*`).catch(() => {});
         }
       }
 
-      updateEventDetails(eventId, newDateStr, rawX, rawY);
-      scheduleEventTimers(interaction.client, { ...ev, target_date: newDateStr });
+
 
       let attachment;
       if (rawX !== null && rawY !== null) {
@@ -338,7 +339,7 @@ module.exports = {
       }
 
       try {
-        const channel = await interaction.client.channels.fetch(ev.channel_id);
+        const channel = await require('../utils/guildChannels').fetchGuildChannel(interaction.client, interaction.guildId, ev.channel_id);
         const message = await channel.messages.fetch(ev.message_id);
         
         const oldEmbed = EmbedBuilder.from(message.embeds[0]);
@@ -398,7 +399,8 @@ module.exports = {
       await interaction.deferReply();
 
       const unixSec = toUnixTimestamp(targetDate);
-      const eventId = generateId();
+      let eventId;
+      do { eventId = generateId(); } while (require('../data/db').eventIdExists(interaction.guildId, eventId));
       const utcTimeString = `${String(targetDate.getUTCHours()).padStart(2, '0')}:${String(targetDate.getUTCMinutes()).padStart(2, '0')} UTC`;
       const availString = await buildAvailabilityString(interaction.guild, targetDate);
 
@@ -475,6 +477,7 @@ module.exports = {
       }
 
       const eventRow = {
+        guild_id: interaction.guildId,
         id: eventId,
         name,
         target_date: targetDate.toISOString(),
@@ -485,12 +488,12 @@ module.exports = {
         message_id: response.id
       };
       
-      addEvent(eventRow);
+      addEvent(interaction.guildId, eventRow);
       scheduleEventTimers(interaction.client, eventRow);
     }
 
     if (subcommand === 'next') {
-      const events = getAllEvents();
+      const events = getAllEvents(interaction.guildId);
       if (events.length === 0) {
         return interaction.reply({ content: '⚠️ No upcoming events scheduled.', ephemeral: true });
       }
@@ -500,7 +503,7 @@ module.exports = {
       const nextEv = events[0];
       
       const { getEventRsvps } = require('../data/db');
-      const rsvps = getEventRsvps(nextEv.id);
+      const rsvps = getEventRsvps(interaction.guildId, nextEv.id);
       const yesCount = rsvps.filter(r => r.status === 'yes').length;
       const maybeCount = rsvps.filter(r => r.status === 'maybe').length;
       const noCount = rsvps.filter(r => r.status === 'no').length;
@@ -516,7 +519,7 @@ module.exports = {
 
     if (subcommand === 'stats') {
       const { getEventStats } = require('../data/db');
-      const stats = getEventStats();
+      const stats = getEventStats(interaction.guildId);
       
       if (!stats || stats.topUsers.length === 0) {
         return interaction.reply({ content: '⚠️ No event history available yet. Events must be completed to generate statistics.', ephemeral: true });

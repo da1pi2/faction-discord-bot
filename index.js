@@ -2,10 +2,10 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const cron = require('node-cron');
-const { 
-  AttachmentBuilder, 
-  Client, 
-  GatewayIntentBits, 
+const {
+  AttachmentBuilder,
+  Client,
+  GatewayIntentBits,
   Collection,
   ActionRowBuilder,
   ButtonBuilder,
@@ -14,18 +14,17 @@ const {
   MessageType
 } = require('discord.js');
 const { syncGuildActivityRoles } = require('./utils/roleManager');
-const { 
-  logSnapshot, 
-  dbEvents, 
-  createBackup, 
-  getUserTimezone, 
-  clearUserAvailabilities, 
+const {
+  logSnapshot,
+  createGuildBackup,
+  getGuildSettings,
+  getUserTimezone,
+  clearUserAvailabilities,
   addUserAvailability,
   getUserAvailabilities,
   deleteUserAvailabilityById,
   getAllEvents,
   getEventRsvps,
-  deleteEvent,
   getEvent,
   setEventRsvp
 } = require('./data/db');
@@ -35,9 +34,9 @@ const { scheduleEventTimers } = require('./commands/event');
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers, 
-    GatewayIntentBits.GuildMessages, 
-    GatewayIntentBits.MessageContent, 
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -55,42 +54,35 @@ let isBackingUp = false;
 async function performDiscordBackup(reason = 'Aggiornamento database') {
   if (isBackingUp) return;
   isBackingUp = true;
-  
   try {
-    const backupChannelId = process.env.BACKUP_CHANNEL_ID;
-    if (!backupChannelId) {
-      isBackingUp = false;
-      return;
+    for (const guild of client.guilds.cache.values()) {
+      const backupChannelId = getGuildSettings(guild.id).backup_channel_id;
+      if (!backupChannelId) continue;
+      const backupPath = path.join(__dirname, 'data', `temp_backup_${guild.id}.sqlite`);
+      try {
+        const channel = await require('./utils/guildChannels').fetchGuildChannel(client, guild.id, backupChannelId);
+        if (!channel) continue;
+        await createGuildBackup(guild.id, backupPath);
+        const dateStr = new Date().toISOString().replace(/:/g, '-').split('.')[0];
+        const attachment = new AttachmentBuilder(backupPath, { name: `guild-${guild.id}-db-${dateStr}.sqlite` });
+        const previous = await channel.messages.fetch({ limit: 10 });
+        await channel.send({
+          content: `📦 **Automatic Database Backup**\n🛠️ Last operation: *${reason}*\n🕒 Updated at: ${new Date().toUTCString()}`,
+          files: [attachment]
+        });
+        // Retire only previous backup attachments after the new upload succeeds.
+        for (const [, message] of previous) {
+          if (message.author.id === client.user.id && message.attachments.some(a =>
+            a.name?.startsWith(`guild-${guild.id}-db-`) || a.name?.startsWith('dragonfire-db-'))) {
+            await message.delete().catch(() => {});
+          }
+        }
+      } catch (error) {
+        console.error(`Discord backup failed for guild ${guild.id}:`, error);
+      } finally {
+        if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+      }
     }
-
-    const channel = await client.channels.fetch(backupChannelId).catch(() => null);
-    if (!channel) {
-      isBackingUp = false;
-      return;
-    }
-
-    const messages = await channel.messages.fetch({ limit: 10 });
-    const oldBackups = messages.filter(m => m.author.id === client.user.id);
-    for (const [, msg] of oldBackups) {
-      await msg.delete().catch(() => {});
-    }
-
-    const backupPath = path.join(__dirname, 'data', 'temp_backup.sqlite');
-    await createBackup(backupPath);
-
-    const dateStr = new Date().toISOString().replace(/:/g, '-').split('.')[0];
-    const attachment = new AttachmentBuilder(backupPath, { name: `dragonfire-db-${dateStr}.sqlite` });
-    
-    await channel.send({ 
-      content: `📦 **Automatic Database Backup**\n🛠️ Last operation: *${reason}*\n🕒 Updated at: ${new Date().toUTCString()}`, 
-      files: [attachment] 
-    });
-
-    if (fs.existsSync(backupPath)) {
-      fs.unlinkSync(backupPath);
-    }
-  } catch (error) {
-    console.error('Error during Discord backup update:', error);
   } finally {
     isBackingUp = false;
   }
@@ -100,27 +92,31 @@ async function performDiscordBackup(reason = 'Aggiornamento database') {
 client.once('clientReady', async () => {
   console.log(`✅ Bot connesso come ${client.user.tag}`);
 
-  const statusChannelId = '1535252222626111651'; // canale bot-status
-  const nowUnix = Math.floor(Date.now() / 1000); // timestamp in secondi
-  
-  try {
-    const restartChannel = await client.channels.fetch(statusChannelId).catch(() => null);
-    if (restartChannel) {
-      const embed = new EmbedBuilder()
-        .setTitle('🤖 Dragonfire Bot Status')
-        .setColor(0x2ecc71)
-        .setDescription('The bot is currently **ONLINE** and operational.')
-        .addFields(
-          { name: 'Last Restart', value: `<t:${nowUnix}:F> (<t:${nowUnix}:R>)`, inline: true }
-        );
+  for (const guild of client.guilds.cache.values()) {
+    const statusChannelId = getGuildSettings(guild.id).status_channel_id;
+    if (!statusChannelId) continue;
+    const nowUnix = Math.floor(Date.now() / 1000); // timestamp in secondi
 
-      await restartChannel.send({ embeds: [embed] });
-      console.log('✅ Restart message sent to Discord channel.');
-    } else {
-      console.error(`❌ Could not fetch channel ${statusChannelId}. Check if the bot has permission to view it.`);
+    try {
+      const restartChannel = await require('./utils/guildChannels').fetchGuildChannel(client, guild.id, statusChannelId).catch(() => null);
+      if (restartChannel) {
+        const embed = new EmbedBuilder()
+          .setTitle(`🤖 ${guild.name} Bot Status`)
+          .setColor(0x2ecc71)
+          .setDescription('The bot is currently **ONLINE** and operational.')
+          .addFields(
+            { name: 'Last Restart', value: `<t:${nowUnix}:F> (<t:${nowUnix}:R>)`, inline: true }
+          );
+
+        await restartChannel.send({ embeds: [embed] });
+        console.log('✅ Restart message sent to Discord channel.');
+      } else {
+        console.error(`❌ Could not fetch channel ${statusChannelId}. Check if the bot has permission to view it.`);
+      }
+    } catch (err) {
+      console.error('❌ Error sending Discord restart message:', err);
     }
-  } catch (err) {
-    console.error('❌ Error sending Discord restart message:', err);
+
   }
 
   // Ping immediato al boot
@@ -133,14 +129,14 @@ client.once('clientReady', async () => {
     console.error('⚠️ La variabile HEALTHCHECKS_PING_URL è vuota o inesistente. Controlla il pannello Wispbyte o il file .env!');
   }
 
-  const activeEvents = getAllEvents();
+  const activeEvents = [...client.guilds.cache.values()].flatMap(guild => getAllEvents(guild.id));
   for (const ev of activeEvents) {
     const targetDate = new Date(ev.target_date);
     if (targetDate.getTime() <= Date.now()) {
       //deleteEvent(ev.id);
       // --- RIMUOVI PIN AL BOOT SE SCADUTO ---
       try {
-        const channel = await client.channels.fetch(ev.channel_id);
+        const channel = await require('./utils/guildChannels').fetchGuildChannel(client, ev.guild_id, ev.channel_id);
         const message = await channel.messages.fetch(ev.message_id);
         if (message && message.pinned) {
           await message.unpin();
@@ -148,7 +144,7 @@ client.once('clientReady', async () => {
       } catch (err) {}
       // --------------------------------------
       const { archiveEvent } = require('./data/db'); // <--- MODIFICATO
-      archiveEvent(ev.id); // <--- MODIFICATO
+      archiveEvent(ev.guild_id, ev.id); // <--- MODIFICATO
     } else {
       scheduleEventTimers(client, ev);
     }
@@ -167,7 +163,7 @@ client.once('clientReady', async () => {
   for (const [, guild] of client.guilds.cache) {
     try {
       const summary = await syncGuildActivityRoles(guild);
-      logSnapshot(summary);
+      logSnapshot(guild.id, summary);
       console.log(`🔄 Sync iniziale completato per "${guild.name}"`);
     } catch (err) {
       console.error(`Errore sync iniziale su ${guild.name}:`, err);
@@ -180,7 +176,7 @@ client.once('clientReady', async () => {
     for (const [, guild] of client.guilds.cache) {
       try {
         const summary = await syncGuildActivityRoles(guild);
-        logSnapshot(summary);
+        logSnapshot(guild.id, summary);
         console.log(`🔄 [${new Date().toISOString()}] Ruoli aggiornati per "${guild.name}"`);
       } catch (err) {
         console.error(`Errore durante il sync periodico su ${guild.name}:`, err);
@@ -210,10 +206,10 @@ client.on('messageCreate', async (message) => {
   // --- AUTO-PULIZIA MESSAGGI DI SISTEMA (PIN) ---
   if (message.type === MessageType.ChannelPinnedMessage) {
     message.delete().catch(() => {});
-    return; 
+    return;
   }
 
-  if (message.author.bot) return;
+  if (message.author.bot || !message.guildId) return;
 
   const coordRegex = /(?:\(\s*(\d{1,4})\s*,\s*(\d{1,4})\s*\))|(?:x\s*[:=]?\s*(\d{1,4})[,\s]+y\s*[:=]?\s*(\d{1,4}))/gi;
   let match;
@@ -235,8 +231,8 @@ client.on('messageCreate', async (message) => {
   }
 
   if (foundCoords.length > 0) {
-    const { x, y } = foundCoords[0]; 
-    
+    const { x, y } = foundCoords[0];
+
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`map_prompt_${message.author.id}_${x}_${y}`)
@@ -259,27 +255,50 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  if (!interaction.guildId || !interaction.guild) {
+    if (interaction.isAutocomplete()) return interaction.respond([]);
+    if (interaction.isRepliable()) return interaction.reply({content:'This bot works in Discord servers only.',ephemeral:true});
+    return;
+  }
 
   // Gestione Bottoni Globali
   if (interaction.isButton()) {
-    
-    // 1. Gestione Pannello Availability (nuovo!)
+
+    if (interaction.customId === 'avail_clear' || /^avail_toggle_\d+_\d+$/.test(interaction.customId)) {
+      await interaction.deferReply({ephemeral:true});
+      const g = interaction.guildId, user = interaction.user.id;
+      if (!getUserTimezone(g,user)) return interaction.editReply({content:'Set your timezone first with /timezone.'});
+      if (interaction.customId === 'avail_clear') clearUserAvailabilities(g,user);
+      else {
+        const [, , startText, endText] = interaction.customId.split('_');
+        const start=Number(startText), end=Number(endText);
+        if (start > 23 || end > 23) return interaction.editReply({content:'Invalid availability slot.'});
+        const slot=getUserAvailabilities(g,user).find(s=>s.available_start===start && s.available_end===end);
+        if(slot) deleteUserAvailabilityById(g,slot.id,user);
+        else addUserAvailability(g,user,start,end);
+      }
+      await syncGuildActivityRoles(interaction.guild);
+      return interaction.editReply({content:'Availability updated for this server.'});
+    }
+
+    // Gestione RSVP
    if (interaction.customId.startsWith('rsvp_yes_') || interaction.customId.startsWith('rsvp_no_') || interaction.customId.startsWith('rsvp_maybe_')) {
       await interaction.deferUpdate();
 
       const parts = interaction.customId.split('_');
       const action = parts[1]; // 'yes', 'no', o 'maybe'
       const eventId = parts[2];
-      
-      const ev = getEvent(eventId);
-      
+
+      const ev = getEvent(interaction.guildId, eventId);
+
       if (!ev) {
         return interaction.followUp({ content: '⚠️ This event has been cancelled or already ended.', ephemeral: true });
       }
 
-      setEventRsvp(eventId, interaction.user.id, action);
-      
-      const rsvps = getEventRsvps(eventId);
+      if (ev.channel_id !== interaction.channelId || ev.message_id !== interaction.message.id) return;
+      setEventRsvp(interaction.guildId, eventId, interaction.user.id, action);
+
+      const rsvps = getEventRsvps(interaction.guildId, eventId);
       const yesSet = rsvps.filter(r => r.status === 'yes').map(r => r.user_id);
       const maybeSet = rsvps.filter(r => r.status === 'maybe').map(r => r.user_id);
       const noSet = rsvps.filter(r => r.status === 'no').map(r => r.user_id);
@@ -328,9 +347,9 @@ client.on('interactionCreate', async (interaction) => {
         const { imageBuffer } = await renderMapWithMarkers([{ x, y, type: 'location' }]);
         const attachment = new AttachmentBuilder(imageBuffer, { name: 'map.png' });
 
-        await interaction.editReply({ 
-          files: [attachment], 
-          content: `📍 Map requested by <@${interaction.user.id}> for coordinate **(${x}, ${y})**:` 
+        await interaction.editReply({
+          files: [attachment],
+          content: `📍 Map requested by <@${interaction.user.id}> for coordinate **(${x}, ${y})**:`
         });
       } catch (err) {
         console.error('Error generating automatic map:', err);
@@ -356,8 +375,8 @@ client.on('interactionCreate', async (interaction) => {
         await interaction.reply(errorReply).catch(() => {});
       }
     }
-  } 
-  
+  }
+
   // Gestione Menu Autocomplete
   else if (interaction.isAutocomplete()) {
     const command = client.commands.get(interaction.commandName);
@@ -371,6 +390,11 @@ client.on('interactionCreate', async (interaction) => {
       console.error(`Errore Autocomplete per /${interaction.commandName}:`, err);
     }
   }
+});
+
+client.on('guildCreate', async guild => {
+  try { await guild.members.fetch(); const summary=await syncGuildActivityRoles(guild); logSnapshot(guild.id,summary); }
+  catch(error) { console.error(`Initial sync failed for guild ${guild.id}:`,error); }
 });
 
 client.login(process.env.DISCORD_TOKEN);

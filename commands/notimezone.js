@@ -10,7 +10,7 @@ module.exports = {
     await interaction.deferReply();
 
     // Recuperiamo tutti i fusi orari salvati e creiamo un Set di ID utente per una ricerca rapida
-    const savedTimezones = getAllTimezones();
+    const savedTimezones = getAllTimezones(interaction.guildId);
     const usersWithTz = new Set(savedTimezones.map(row => row.user_id));
 
     const missing = [];

@@ -47,7 +47,7 @@ module.exports = {
     }
 
     // Verifica che l'utente abbia già un fuso orario configurato nel DB
-    const userTz = getUserTimezone(targetUser.id);
+    const userTz = getUserTimezone(interaction.guildId, targetUser.id);
     if (!userTz) {
       await interaction.editReply({
         content: `⚠️ **${targetUser.username}** has not set a timezone yet. Set their timezone first with \`/settimezone\`.`,
@@ -60,8 +60,8 @@ module.exports = {
       const end = interaction.options.getInteger('end');
 
       // Pulisce i vecchi slot e imposta il nuovo slot per l'utente
-      clearUserAvailabilities(targetUser.id);
-      addUserAvailability(targetUser.id, start, end);
+      clearUserAvailabilities(interaction.guildId, targetUser.id);
+      addUserAvailability(interaction.guildId, targetUser.id, start, end);
 
       await syncGuildActivityRoles(interaction.guild);
 
@@ -69,7 +69,7 @@ module.exports = {
         content: `✅ Updated availability slot for **${targetUser.username}**: **${String(start).padStart(2, '0')}:00 - ${String(end).padStart(2, '0')}:00** (Local time).\nTheir activity roles have been updated automatically.`,
       });
     } else if (subcommand === 'clear') {
-      clearUserAvailabilities(targetUser.id);
+      clearUserAvailabilities(interaction.guildId, targetUser.id);
       await syncGuildActivityRoles(interaction.guild);
 
       await interaction.editReply({

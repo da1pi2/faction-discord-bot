@@ -37,7 +37,7 @@ module.exports = {
     }
 
     // Aggiorna il fuso orario nel database
-    setUserTimezone(targetUser.id, offset);
+    setUserTimezone(interaction.guildId, targetUser.id, offset);
 
     // Sincronizza i ruoli di attività (Day / Peak / Night) del server
     await syncGuildActivityRoles(interaction.guild);
