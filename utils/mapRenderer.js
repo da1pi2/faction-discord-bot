@@ -1,7 +1,7 @@
 const path = require('path');
 const sharp = require('sharp');
 
-const MAP_PATH = path.join(__dirname, '..', 'images', 'map_clear.png');
+const MAP_PATH = path.join(__dirname, '..', 'images', 'map_season_4.png');
 const MARKERS = {
   location: path.join(__dirname, '..', 'images', 'location.png'),
   defend: path.join(__dirname, '..', 'images', 'defend.png'),
